@@ -657,13 +657,10 @@ function savedNow() {
   return SAVING_KEYS.reduce((s, k) => s + r.balances[k], 0);
 }
 
-// Орлого/зарлагаас автоматаар тооцох медалиуд
-function autoBadges() {
+// Орлого/зарлагаас автоматаар тооцох үзүүлэлтүүд
+function achStats() {
   const cur = currentMonth();
   const L = S.ledger.filter((r) => r.month <= cur && (r.income || r.spent));
-  const goal = L.filter((r) => r.income >= TARGET).length;
-  const excess = L.filter((r) => r.excess > 0).length;
-  const clean = L.filter((r) => r.month < cur && r.available > 0 && r.householdLeft >= 0).length;
   let streak = 0;
   for (let i = L.length - 1; i >= 0; i--) {
     if (L[i].income >= TARGET) streak++;
@@ -671,51 +668,96 @@ function autoBadges() {
     else break;
   }
   const saved = savedNow();
-  const reached = SAVED_MILESTONES.filter((m) => saved >= m).at(-1);
-  const next = SAVED_MILESTONES.find((m) => saved < m);
-  const badges = [];
-  if (goal) badges.push(['🏆', `Зорилт ${goal} удаа биелсэн`]);
-  if (streak >= 2) badges.push(['🔥', `${streak} сар дараалан`]);
-  if (excess) badges.push(['🎉', `Илүүдэлтэй ${excess} сар`]);
-  if (clean) badges.push(['🌿', `Хэтрэлтгүй ${clean} сар`]);
-  if (reached) badges.push(['💎', `Хуримтлал ${fmtShort(reached)}`]);
-  return { badges, saved, next };
+  return {
+    goal: L.filter((r) => r.income >= TARGET).length,
+    excess: L.filter((r) => r.excess > 0).length,
+    clean: L.filter((r) => r.month < cur && r.available > 0 && r.householdLeft >= 0).length,
+    streak,
+    saved,
+    reached: SAVED_MILESTONES.filter((m) => saved >= m).at(-1),
+    next: SAVED_MILESTONES.find((m) => saved < m),
+  };
 }
 
-function achCard(r) {
+// "2026 оны 9-р сарын 30" / энэ жил бол "9-р сарын 30"
+function longDate(iso, withYear) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${withYear || y !== new Date().getFullYear() ? `${y} оны ` : ''}${m}-р сарын ${d}`;
+}
+
+const sortAch = (list) => [...list].sort((x, y) => y.date.localeCompare(x.date) || String(y.created_at).localeCompare(String(x.created_at)));
+
+function achCard(r, hero) {
   const a = adminOf(r.created_by);
-  const yr = r.date.slice(0, 4) === todayISO().slice(0, 4) ? '' : `${r.date.slice(0, 4)}-`;
   return `
-    <figure class="ach">
+    <button type="button" class="ach ${hero ? 'hero' : ''} ${r.image_url ? '' : 'no-img'}" data-ach-open="${r.id}" aria-label="${esc(r.title)}">
       ${r.image_url
-        ? `<button type="button" class="ach-img" data-ach-view="${r.id}" aria-label="Томруулж харах"><img src="${esc(r.image_url)}" alt="${esc(r.title)}" loading="lazy"></button>`
-        : `<div class="ach-img ach-ph" aria-hidden="true">${esc(r.emoji)}</div>`}
-      <span class="ach-emoji" aria-hidden="true">${esc(r.emoji)}</span>
-      <figcaption>
-        <b>${esc(r.title)}</b>
-        ${r.note ? `<p>${esc(r.note)}</p>` : ''}
-        <small>${yr}${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)}</small>
-      </figcaption>
-      <button type="button" class="del ach-del" data-del="achievement:${r.id}" aria-label="Устгах">🗑️</button>
-    </figure>`;
+        ? `<img src="${esc(r.image_url)}" alt="" loading="lazy">`
+        : `<span class="ach-big" aria-hidden="true">${esc(r.emoji)}</span>`}
+      ${r.image_url ? `<span class="ach-emoji" aria-hidden="true">${esc(r.emoji)}</span>` : ''}
+      <span class="ach-body">
+        <span class="ach-title">${esc(r.title)}</span>
+        <span class="ach-meta">${av(a, 'xs')} ${hero ? `${esc(a.name)} · ` : ''}${longDate(r.date)}</span>
+      </span>
+    </button>`;
 }
 
 function renderAchievements() {
-  const { badges, saved, next } = autoBadges();
-  const list = [...S.achievements].sort((x, y) => y.date.localeCompare(x.date) || String(y.created_at).localeCompare(String(x.created_at)));
+  const st = achStats();
+  const list = sortAch(S.achievements);
+  const tile = (e, v, label) => `<div class="stat ${v ? '' : 'off'}"><span>${e}</span><b class="num">${v}</b><small>${label}</small></div>`;
   $('#achievements').innerHTML = `
-    <div class="card-head"><h2>🏆 Бидний амжилтууд</h2><button type="button" class="btn small primary" data-ach-add>📸 Нэмэх</button></div>
-    <div class="badges">
-      ${badges.map(([e, t]) => `<span class="badge"><span>${e}</span>${t}</span>`).join('')}
-      ${next ? `<span class="badge next" style="--p:${pct(saved, next)}%"><span>🔒</span>${fmtShort(next)} хүртэл ${fmtShort(next - saved)}</span>` : ''}
+    <div class="ach-head">
+      <div>
+        <h2>🏆 Бидний амжилтууд</h2>
+        <small>${list.length ? `${list.length} дурсамж хадгалагдсан` : 'Хамтдаа бүтээсэн мөчүүд'}</small>
+      </div>
+      <button type="button" class="ach-add" data-ach-add>＋ Нэмэх</button>
     </div>
+
+    <div class="stats">
+      ${tile('🏆', st.goal, 'Зорилт')}
+      ${tile('🔥', st.streak, 'Дараалсан')}
+      ${tile('🎉', st.excess, 'Илүүдэл')}
+      ${tile('🌿', st.clean, 'Хэмнэлт')}
+    </div>
+    ${st.next ? `
+      <div class="milestone">
+        <div class="ms-row"><span>💎 Хуримтлал <b class="num">${fmtShort(st.saved)}</b></span><span class="muted">🔒 ${fmtShort(st.next)}</span></div>
+        <div class="bar"><i style="width:${pct(st.saved, st.next)}%"></i></div>
+        <small>Дараагийн босго хүртэл ${fmtShort(st.next - st.saved)} үлдлээ</small>
+      </div>` : ''}
+
     ${S.achievementsMissing ? '<p class="note">⚠️ Зураг нэмэхийн тулд Supabase → SQL Editor дээр <b>supabase/achievements.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : ''}
     ${list.length
-      ? `<div class="ach-grid">${list.map(achCard).join('')}</div>`
+      ? `<div class="ach-grid">${list.map((r, i) => achCard(r, i === 0)).join('')}</div>`
       : `<button type="button" class="ach-empty" data-ach-add>
           <span>📸</span><b>Эхний амжилтаа нэмээрэй!</b>
           <small>Хадгаламж 1 сая хүрсэн, аялалд явсан, шинэ байранд орсон… зураг, эможитой нь тэмдэглээрэй</small>
         </button>`}`;
+}
+
+// Дэлгэрэнгүй: том зураг, тайлбар, хэн нэмсэн. Устгах товч зөвхөн энд.
+function openAchDetail(id) {
+  const r = S.achievements.find((x) => x.id === id);
+  if (!r) return;
+  const a = adminOf(r.created_by);
+  $('#ach-detail').innerHTML = `
+    <div class="detail-card">
+      ${r.image_url
+        ? `<div class="detail-media"><img src="${esc(r.image_url)}" alt="${esc(r.title)}"></div>`
+        : `<div class="detail-media no-img"><span>${esc(r.emoji)}</span></div>`}
+      <div class="detail-body">
+        <h2 class="detail-title">${r.image_url ? `${esc(r.emoji)} ` : ''}${esc(r.title)}</h2>
+        ${r.note ? `<p class="detail-note">${esc(r.note)}</p>` : ''}
+        <div class="detail-meta">${av(a, 'sm')} <span><b>${esc(a.name)}</b> нэмсэн · ${longDate(r.date, true)}</span></div>
+        <div class="detail-actions">
+          <button type="button" class="link-danger" data-del="achievement:${r.id}">🗑️ Устгах</button>
+          <button type="button" class="btn primary" data-close autofocus>Хаах</button>
+        </div>
+      </div>
+    </div>`;
+  $('#ach-detail').showModal();
 }
 
 function openAchSheet() {
@@ -804,16 +846,10 @@ function wireAchievements() {
     }
   });
 
-  const lb = $('#lightbox');
-  lb.addEventListener('click', () => lb.close());
-}
-
-function openLightbox(id) {
-  const r = S.achievements.find((x) => x.id === id);
-  if (!r?.image_url) return;
-  $('#lightbox img').src = r.image_url;
-  $('#lightbox p').textContent = `${r.emoji} ${r.title}`;
-  $('#lightbox').showModal();
+  const dt = $('#ach-detail');
+  dt.addEventListener('click', (e) => {
+    if (e.target === dt || e.target.closest('[data-close]')) dt.close();
+  });
 }
 
 // ---------- Бусад ----------
@@ -966,7 +1002,7 @@ function setView(v, scroll = true) {
 
 let quickVisible = true;
 function updateFab() {
-  $('#fab').classList.toggle('hide', S.view === 'home' && quickVisible);
+  $('#fab').classList.toggle('hide', (S.view === 'home' && quickVisible) || S.view === 'ach' || S.view === 'more');
 }
 
 function goQuick() {
@@ -1008,8 +1044,8 @@ function wireGlobal() {
 
 
     if (e.target.closest('[data-ach-add]')) return openAchSheet();
-    const av = e.target.closest('[data-ach-view]');
-    if (av) return openLightbox(av.dataset.achView);
+    const ao = e.target.closest('[data-ach-open]');
+    if (ao) return openAchDetail(ao.dataset.achOpen);
 
     const cm = e.target.closest('[data-coin-mode]');
     if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
@@ -1056,6 +1092,7 @@ async function deleteRow(kind, id) {
   if (!row) return;
   try {
     await S.store.remove(kind, row, 'delete');
+    if (kind === 'achievement' && $('#ach-detail').open) $('#ach-detail').close();
     dropLocal(kind, id);
     const what = kind === 'achievement' ? `${row.emoji} “${row.title}”` : `${fmtSigned(row.amount, kind)} ${kind === 'expense' ? 'зарлага' : 'орлого'}`;
     toast(`🗑️ ${what} устгалаа`, {
