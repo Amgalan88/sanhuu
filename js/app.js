@@ -206,16 +206,27 @@ function buildQuick() {
     updateQuick();
   });
 
-  $('#date').addEventListener('change', () => updateQuick());
+  $('#date').addEventListener('change', () => { updateQuick(); updateExtraLabel(); });
   for (const el of [amount, $('#note'), $('#date')]) {
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); save(); }
     });
   }
   $('#save').addEventListener('click', save);
+  $('#extra-toggle').addEventListener('click', () => {
+    const ex = $('#quick .extra');
+    ex.hidden = !ex.hidden;
+    if (!ex.hidden) $('#note').focus();
+  });
 
   renderQuickControls();
   updateQuick();
+  updateExtraLabel();
+}
+
+function updateExtraLabel() {
+  const d = $('#date').value;
+  $('#extra-toggle').textContent = `📝 Тайлбар · 📅 ${!d || d === todayISO() ? 'Өнөөдөр' : shortDate(d)}`;
 }
 
 function renderQuickControls() {
@@ -405,75 +416,57 @@ function renderMockBanner() {
     </div>` : '';
 }
 
+// Сарын самбар: орлого ба өрхийн зарцуулалт. Хуваарилалтын дэлгэрэнгүй нь "дэлгэх" дотор.
 function renderSummary() {
   const r = rowOf(S.month);
   const goalPct = pct(r.income, TARGET);
-  const status = r.income > TARGET ? ['gold', '🎉 Илүүдэлтэй'] : r.income === TARGET ? ['ok', '🏆 Биелсэн'] : r.income ? ['', `${Math.round(goalPct)}%`] : ['', 'Орлого алга'];
   const lvl = spendLevel(r.spent, r.available);
-  const spentPct = pct(r.spent, r.available);
-  const allocTotal = r.alloc.total || 0;
+  const spentPct = r.available > 0 ? pct(r.spent, r.available) : r.spent ? 100 : 0;
+  const goalText = r.income > TARGET ? `🎉 +${fmt(r.excess)} илүүдэл`
+    : r.income === TARGET ? '🏆 Биелсэн'
+    : r.income ? `${fmt(TARGET - r.income)} дутуу` : 'Орлого бүртгээгүй';
+  const open = $('#summary details')?.open ? 'open' : '';
 
   $('#summary').innerHTML = `
-    <div class="card-head" style="margin:0"><h2>📅 ${monthLabel(S.month, false)}ын самбар</h2><span class="pill ${status[0]}">${status[1]}</span></div>
-    <div class="kpi">
-      <div><small>Нийт орлого</small><b class="num big">${fmt(r.income)}</b></div>
-      <div style="text-align:right"><small>Зорилт</small><b class="num">${fmt(TARGET)}</b></div>
-    </div>
+    <h2>📅 ${monthLabel(S.month, false)}</h2>
+
+    <div class="sum-row"><span>💼 Орлого</span><b class="num">${fmt(r.income)}</b></div>
     <div class="bar" role="progressbar" aria-valuenow="${Math.round(goalPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="4 саяын зорилт"><i style="width:${goalPct}%"></i></div>
-    <div class="between"><span>${r.income >= TARGET ? '✅ Зорилт биелсэн' : `${fmt(TARGET - r.income)} дутуу`}</span><span>${Math.round(goalPct)}%</span></div>
-    ${r.excess > 0 ? `
-      <div class="excess">🎁 Илүүдэл <span class="num">${fmt(r.excess)}</span> — эзлэх хувиараа хуваагдсан:
-        <div class="parts num">${SAVING_KEYS.map((k) => `<span>${ACC[k].emoji} +${fmtNum(r.alloc[k] - (TARGET * ACC[k].pct) / 100)}</span>`).join('')}</div>
-      </div>` : ''}
+    <div class="between"><span>${goalText}</span><span>зорилт ${fmtNum(TARGET)}</span></div>
 
-    <h3>5 дансны хуваарилалт</h3>
-    <div class="stack" aria-hidden="true">
-      ${allocTotal ? ACCOUNTS.map((a) => `<i style="width:${pct(r.alloc[a.key], allocTotal)}%;background:${a.color}"></i>`).join('') : ''}
-    </div>
-    <ul class="legend">
-      ${ACCOUNTS.map((a) => `<li style="--c:${a.color}"><span class="dot"></span><span>${a.emoji} ${a.name}<span class="pct">${allocTotal ? Math.round(pct(r.alloc[a.key], allocTotal)) : a.pct}%</span></span><b class="num">${fmt(r.alloc[a.key])}</b></li>`).join('')}
-    </ul>
+    <div class="sum-row" style="margin-top:14px"><span>🏠 Өрхийн данс үлдэгдэл</span><b class="num ${r.householdLeft < 0 ? 'neg' : ''}">${fmt(r.householdLeft)}</b></div>
+    <div class="bar ${lvl}" role="progressbar" aria-valuenow="${Math.round(spentPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Өрхийн зарцуулалт"><i style="width:${spentPct}%"></i></div>
+    <div class="between"><span>${fmt(r.spent)} зарцуулсан</span><span>${fmt(r.available)}-аас</span></div>
 
-    <h3>🏠 Өрхийн дансны зарцуулалт</h3>
-    <div class="bar ${lvl}" role="progressbar" aria-valuenow="${Math.round(spentPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Өрхийн зарцуулалт"><i style="width:${r.available > 0 ? spentPct : r.spent ? 100 : 0}%"></i></div>
-    <div class="between"><span>Зарцуулсан <b class="num">${fmt(r.spent)}</b></span><span>${r.available > 0 ? `${Math.round((r.spent / r.available) * 100)}%` : ''} / ${fmt(r.available)}</span></div>
-    <div class="minis">
-      <div class="mini">Энэ сарын хуваарилалт<b>${fmt(r.alloc.household)}</b></div>
-      <div class="mini">Өмнөх сараас шилжсэн<b class="${r.carryIn > 0 ? 'pos' : r.carryIn < 0 ? 'neg' : ''}">${signed(r.carryIn)}</b></div>
-      <div class="mini">Үлдэгдэл<b class="${r.householdLeft < 0 ? 'neg' : ''}">${fmt(r.householdLeft)}</b></div>
-    </div>`;
+    <details ${open}>
+      <summary>Хуваарилалтын дэлгэрэнгүй</summary>
+      <ul class="legend">
+        ${ACCOUNTS.map((a) => `<li style="--c:${a.color}"><span class="dot"></span><span>${a.emoji} ${a.name}<span class="pct">${a.pct}%</span></span><b class="num">${fmt(r.alloc[a.key])}</b></li>`).join('')}
+        <li><span></span><span>🌱 Өмнөх сараас шилжсэн</span><b class="num ${r.carryIn > 0 ? 'pos' : r.carryIn < 0 ? 'neg' : ''}">${signed(r.carryIn)}</b></li>
+      </ul>
+      ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmtNum(r.alloc[k] - (TARGET * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
+    </details>`;
 }
 
-// Хуримтлагдсан үлдэгдэл: сонгосон сарын эцэст (одоогийн сар бол одоогийн байдлаар)
-function balanceCaption() {
-  return S.month === currentMonth() ? 'Одоогийн байдлаар' : `${monthLabel(S.month, false)}ын эцэст`;
-}
-
+// Нийт хуримтлал: 4 хадгаламжийн дансны үлдэгдэл (өрхийн данс сарын самбарт)
 function renderOverview() {
   const r = rowOf(S.month);
   const saved = SAVING_KEYS.reduce((s, k) => s + r.balances[k], 0);
   const savedMonth = SAVING_KEYS.reduce((s, k) => s + r.alloc[k], 0);
+  const when = S.month === currentMonth() ? '' : ` · ${monthLabel(S.month, false)}ын эцэст`;
   $('#overview').innerHTML = `
-    <div class="card-head"><h2>💰 Дансны үлдэгдэл</h2><span class="pill gold">${balanceCaption()}</span></div>
     <div class="ov-total">
-      <small>Нийт хуримтлал · 4 данс</small>
+      <small>💰 Нийт хуримтлал${when}</small>
       <b class="num">${fmt(saved)}</b>
-      ${savedMonth ? `<span class="ov-delta">+${fmt(savedMonth)} энэ сард нэмэгдсэн</span>` : ''}
+      ${savedMonth ? `<span class="ov-delta">+${fmt(savedMonth)} энэ сар</span>` : ''}
     </div>
-    <ul class="ov-list">
-      ${ACCOUNTS.map((a) => {
-        const bal = r.balances[a.key];
-        const sub = a.key === 'household'
-          ? (r.available ? `${fmt(r.available)}-аас ${fmt(r.spent)} зарцуулсан` : 'Энэ сар хуваарилалт алга')
-          : (r.alloc[a.key] ? `+${fmt(r.alloc[a.key])} энэ сар` : 'энэ сар нэмэгдээгүй');
-        return `
-          <li style="--c:${a.color}">
-            <span class="ov-emoji">${a.emoji}</span>
-            <span class="ov-name">${a.name} <em>${a.pct}%</em><small>${sub}</small></span>
-            <b class="num ${bal < 0 ? 'neg' : ''}">${fmt(bal)}</b>
-          </li>`;
-      }).join('')}
-    </ul>`;
+    <div class="ov-grid">
+      ${SAVING_KEYS.map((k) => `
+        <div class="ov-tile" style="--c:${ACC[k].color}">
+          <span>${ACC[k].emoji} ${ACC[k].name}</span>
+          <b class="num">${fmt(r.balances[k])}</b>
+        </div>`).join('')}
+    </div>`;
 }
 
 function renderCoins() {
@@ -483,9 +476,6 @@ function renderCoins() {
     if (S.coins === 'none') host.innerHTML = '<div class="coins-fallback">🪙 3D харагдац энэ төхөөрөмж дээр ажиллахгүй байна.<br>Дансны дүнг дээрх самбараас харна уу.</div>';
   }
   $$('#coin-mode button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.coinMode === S.coinMode)));
-  $('#coin-caption').textContent = S.coinMode === 'total'
-    ? `Эхнээс нь хуримтлагдсан нийт үлдэгдэл · ${balanceCaption().toLowerCase()}`
-    : `${monthLabel(S.month, false)}ын орлогоос хуваарилагдсан дүн`;
   if (S.coins === 'none') return;
   const r = rowOf(S.month);
   const val = (k) => (S.coinMode === 'total' ? r.balances[k] : r.alloc[k]);
@@ -536,7 +526,7 @@ function txRow(kind, r) {
       <span class="tx-emoji">${c.emoji}</span>
       <div class="tx-main">
         <div class="tx-title">${esc(r.note || c.name)} ${r.mock ? '<span class="tag">жишээ</span>' : ''}</div>
-        <div class="tx-sub">${shortDate(r.date)} · ${c.name} · ${a.emoji} ${esc(a.name)} бүртгэсэн</div>
+        <div class="tx-sub">${shortDate(r.date)} · ${a.emoji} ${esc(a.name)} бүртгэсэн</div>
       </div>
       <div class="tx-right">
         <b class="tx-amt num ${kind === 'income' ? 'pos' : ''}">${kind === 'income' ? '+' : '−'}${fmt(r.amount)}</b>
@@ -550,7 +540,6 @@ function renderExpenses() {
   const total = rows.reduce((s, r) => s + r.amount, 0);
   $('#expenses').innerHTML = `
     <div class="card-head"><h2>🧾 Зарлага <span class="muted num" style="font-size:13px">· ${rows.length}</span></h2><b class="num">${fmt(total)}</b></div>
-    ${filterBar()}
     ${rows.length ? `<ul class="list">${rows.map((r) => txRow('expense', r)).join('')}</ul>` : '<p class="empty">Бүртгэл алга</p>'}`;
 }
 
