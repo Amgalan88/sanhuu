@@ -34,6 +34,8 @@ const EXPENSE_CHEERS = [
 const ACH_EMOJIS = ['🏆', '🎉', '🏠', '✈️', '🎯', '💍', '👶', '🚗', '🎓', '💪', '❤️', '🌟', '🏦', '🛡️', '🎂', '🌱'];
 const SAVED_MILESTONES = [1e6, 3e6, 5e6, 10e6, 20e6, 30e6, 50e6, 100e6];
 const LIST = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
+const THEMES = ['light', 'dark', 'comfort'];
+const THEME_COLOR = { light: '#0a2461', dark: '#060d22', comfort: '#4a3a28' };
 
 const ACTION = {
   add: ['нэмсэн', 'нэмлээ'], delete: ['устгасан', 'устгалаа'], undo: ['буцаасан', 'буцаалаа'],
@@ -963,7 +965,7 @@ function renderMore() {
     <p class="note">• <b>4 саяас бага</b> бол дээрх хувиар хуваана. Бутархай үлдэгдэл 🛡️ эрсдэлийн санд.</p>
     <p class="note">• 🏠 Өрхийн дансны үлдэгдэл дараа сард шилжинэ, хэтэрсэн бол дараа сараас хасагдана. Бусад 4 данс хуримтлагдана.</p>`;
 
-  $$('#theme-seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeSet === getTheme())));
+  $$('#theme-seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeSet === getTheme())));
 }
 
 // ============================================================
@@ -1208,8 +1210,12 @@ async function changeAvatar(blob) {
 // ============================================================
 // Сэдэв
 // ============================================================
+// Гэрэл · Харанхуй · Нүдэнд ээлтэй. Сонгоогүй бол утасны тохиргоогоор эхэлнэ.
 function getTheme() {
-  try { return localStorage.getItem('bidnii-sanhuu-theme') || 'system'; } catch { return 'system'; }
+  let t = null;
+  try { t = localStorage.getItem('bidnii-sanhuu-theme'); } catch { /* ignore */ }
+  if (THEMES.includes(t)) return t;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 function setTheme(t) {
@@ -1218,7 +1224,6 @@ function setTheme(t) {
 }
 
 function applyTheme(t) {
-  const root = document.documentElement;
-  if (t === 'light' || t === 'dark') root.dataset.theme = t;
-  else delete root.dataset.theme;
+  document.documentElement.dataset.theme = t;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[t]);
 }

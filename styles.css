@@ -27,7 +27,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme]) {
     --bg: #060d22;
     --surface: #0d1937;
     --surface-2: #13234a;
@@ -69,6 +69,32 @@
   --track: #1b2d58;
   color-scheme: dark;
 }
+
+/* Нүдэнд ээлтэй: цэнхэр гэрэл багатай, дулаан sepia */
+:root[data-theme="comfort"] {
+  --bg: #eee4cf;
+  --surface: #f9f2e2;
+  --surface-2: #f1e7d0;
+  --text: #3a2e1f;
+  --muted: #7a6950;
+  --border: #dfd0af;
+  --gold: #8f5f10;
+  --gold-fill: #dca544;
+  --gold-soft: #f4e3bd;
+  --ok: #4d7a37;
+  --ok-soft: #e2e9cc;
+  --warn: #9e6500;
+  --warn-soft: #f4dfb5;
+  --bad: #b04a3b;
+  --bad-soft: #f3d9cd;
+  --shadow: 0 6px 22px rgba(90, 60, 20, .1);
+  --track: #e5d8bb;
+  color-scheme: light;
+}
+:root[data-theme="comfort"] .topbar { background: linear-gradient(135deg, #4a3a28, #6b5236 60%, #86673f); }
+:root[data-theme="comfort"] .ov-house { background: linear-gradient(135deg, #574330, #7a5e3e); }
+:root[data-theme="comfort"] .toast { background: #3d3022; }
+:root[data-theme="comfort"] .coins { filter: sepia(.35) saturate(.85); }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -220,7 +246,25 @@ main {
 /* ---------- Хурдан бүртгэл ---------- */
 .quick { padding: 14px; border: 1.5px solid color-mix(in srgb, var(--gold-fill) 45%, var(--border)); scroll-margin-top: 12px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 16px; background: var(--surface-2); }
-.seg.three { grid-template-columns: repeat(3, 1fr); margin-top: 12px; }
+/* Сэдэв сонгох: ижил хэмжээтэй 3 хавтан, өнгөний дээжтэй */
+.theme-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.theme-pick button {
+  display: grid; justify-items: center; align-content: center; gap: 8px; min-height: 92px; padding: 10px 4px;
+  border-radius: 16px; border: 2px solid var(--border); background: var(--surface-2);
+  font-size: 13px; font-weight: 700; line-height: 1.2; text-align: center; color: var(--muted);
+}
+.theme-pick button[aria-checked="true"] { border-color: var(--gold-fill); background: var(--gold-soft); color: var(--text); }
+.sw {
+  position: relative; width: 40px; height: 40px; border-radius: 50%; overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .12);
+}
+.sw i { position: absolute; right: 0; bottom: 0; width: 50%; height: 50%; border-top-left-radius: 100%; }
+.sw-light { background: linear-gradient(135deg, #edf2fb 50%, #0a2461 50%); }
+.sw-light i { background: #f2c14e; }
+.sw-dark { background: linear-gradient(135deg, #0d1937 50%, #060d22 50%); }
+.sw-dark i { background: #f2c14e; }
+.sw-comfort { background: linear-gradient(135deg, #f9f2e2 50%, #6b5236 50%); }
+.sw-comfort i { background: #dca544; }
 .seg button { min-height: 46px; border-radius: 12px; font-weight: 700; font-size: 15px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
 .kind button[data-kind="expense"][aria-pressed="true"] { background: var(--bad-soft); color: var(--bad); }
