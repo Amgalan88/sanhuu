@@ -189,7 +189,12 @@ export class SupabaseStore {
     const { data, error } = await this.sb.functions.invoke('notify', {
       body: { test: true, title: '🔔 Бидний санхүү', body: 'Мэдэгдэл ажиллаж байна! 🎉' },
     });
-    if (error) throw new Error('notify функц олдсонгүй — README-ийн “Push мэдэгдэл” алхмыг хийнэ үү');
+    if (error) {
+      // Функцийн буцаасан бодит шалтгааныг харуулна (жишээ нь Secrets дутуу)
+      let msg = error.message;
+      try { msg = (await error.context.json()).error || msg; } catch { /* JSON биш */ }
+      throw new Error(`Мэдэгдэл илгээж чадсангүй: ${msg}`);
+    }
     if (!data?.sent) throw new Error('Энэ төхөөрөмж бүртгэгдээгүй байна');
     return data;
   }
