@@ -46,6 +46,8 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
 1. <https://supabase.com> → **New project**. Бүс нутгаас Сингапур/Токиог сонговол хурдан.
 2. **SQL Editor** → [supabase/schema.sql](supabase/schema.sql)-ийн агуулгыг бүхэлд нь хуулж **Run**.
    Энэ нь `admins`, `incomes`, `expenses`, `audit_log` хүснэгт, RLS бодлого, Realtime-ийг тохируулна.
+   Дараа нь [supabase/achievements.sql](supabase/achievements.sql)-ийг мөн ажиллуулна —
+   “🏆 Бидний амжилтууд” хүснэгт ба зургийн хувийн сан (Storage bucket `achievements`).
 3. **Authentication → Sign In / Providers → Email**:
    - **Allow new users to sign up**-ийг **унтраана** (гадны хүн бүртгүүлэхгүй).
    - Хүсвэл **Confirm email**-ийг унтраана.
@@ -135,12 +137,26 @@ js/store.js             өгөгдлийн давхарга: Supabase / демо
 js/app.js               UI: хурдан бүртгэл, самбар, жагсаалт, түүх, лог
 js/coins3d.js           Three.js r128 зоосны овоо
 js/confetti.js          конфетти 🎉
+js/celebrate.js         баярын цонх, эможи бороо
+js/image.js             зураг жижгэрүүлэх (upload-аас өмнө)
 js/mock.js              жишээ өгөгдөл
 supabase/schema.sql     хүснэгт, RLS, Realtime
+supabase/achievements.sql  амжилтын хүснэгт + зургийн сан
 supabase/seed.sql       жишээ өгөгдөл (автоматаар үүсгэсэн)
 scripts/gen-seed.mjs    seed.sql үүсгэгч
 tests/finance.test.mjs  unit test
 ```
+
+## 🏆 Бидний амжилтууд
+
+Нүүр хуудасны доод хэсэгт:
+- **Автомат медаль** — орлого/зарлагаас өөрөө тооцно: 🏆 зорилт биелсэн сар, 🔥 дараалсан сар,
+  🎉 илүүдэлтэй сар, 🌿 хэтрэлтгүй сар, 💎 хуримтлалын босго (1, 3, 5, 10 сая…) ба дараагийн босго хүртэлх явц.
+- **📸 Нэмэх** — зураг (камер/галерей) + эможи + гарчиг + тайлбар. Зургийг утсан дээрээ 1600px болгон
+  жижгэрүүлээд Supabase Storage-ийн хувийн bucket-д хадгална; зөвхөн 2 админ харна (24 цагийн signed URL).
+
+Орлого бүртгэхэд баярын цонх гарч, тухайн орлого аль дансанд хэдийг нэмснийг харуулна.
+Орлого `+`, зарлага `−` тэмдэгтэй харагдана.
 
 ## Тэмдэглэл
 

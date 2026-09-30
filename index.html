@@ -52,7 +52,7 @@
       </div>
     </header>
 
-    <div class="ticker-wrap"><p id="ticker" class="ticker" aria-live="polite"></p></div>
+    <div class="ticker-wrap"><button type="button" id="ticker" class="ticker" aria-live="polite" title="Дараагийн мессеж"></button></div>
 
     <main>
       <!-- Нүүр -->
@@ -66,6 +66,7 @@
             <button type="button" data-kind="income">➕ Орлого</button>
           </div>
           <label class="amount-wrap">
+            <span id="amount-sign" class="sign neg" aria-hidden="true">−</span>
             <input id="amount" inputmode="numeric" autocomplete="off" placeholder="0" enterkeyhint="done" aria-label="Дүн">
             <span class="cur">₮</span>
           </label>
@@ -89,6 +90,7 @@
           </div>
           <div id="coins" class="coins"></div>
         </section>
+        <section class="card span-all" id="achievements" aria-label="Бидний амжилтууд"></section>
       </section>
 
       <!-- Гүйлгээ -->
@@ -121,6 +123,33 @@
     </main>
 
     <button type="button" id="fab" class="fab" aria-label="Шинэ бүртгэл">+</button>
+
+    <!-- Амжилт нэмэх -->
+    <dialog id="ach-sheet" class="sheet" aria-labelledby="ach-sheet-title">
+      <form id="ach-form" novalidate>
+        <div class="sheet-head">
+          <h2 id="ach-sheet-title">🏆 Амжилт нэмэх</h2>
+          <button type="button" class="icon-x" data-close aria-label="Хаах">✕</button>
+        </div>
+        <label class="photo-pick" id="photo-pick">
+          <input type="file" id="ach-file" accept="image/*" hidden>
+          <span class="ph-empty"><span>📷</span><b>Зураг сонгох</b><small>Камер эсвэл галерейгаас · заавал биш</small></span>
+          <img id="ach-preview" alt="Сонгосон зураг" hidden>
+        </label>
+        <div class="emoji-pick" id="ach-emojis" role="group" aria-label="Эможи"></div>
+        <input class="field" id="ach-title" maxlength="120" autocomplete="off" placeholder="Жишээ: Хадгаламж 1 сая хүрлээ! 🎉" aria-label="Гарчиг">
+        <div class="extra">
+          <input id="ach-note" type="text" maxlength="300" placeholder="📝 Тайлбар (заавал биш)" autocomplete="off">
+          <input id="ach-date" type="date" aria-label="Огноо">
+        </div>
+        <button type="submit" id="ach-save" class="save">✨ Амжилт хадгалах</button>
+      </form>
+    </dialog>
+
+    <dialog id="lightbox" class="lightbox" aria-label="Зураг">
+      <img alt="">
+      <p></p>
+    </dialog>
 
     <nav class="tabbar" aria-label="Үндсэн цэс">
       <button type="button" data-go="home"><span>🏠</span>Нүүр</button>

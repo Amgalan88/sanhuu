@@ -1,7 +1,7 @@
 // Жишээ (mock) өгөгдөл. Бүх мөр mock=true. id-ууд тогтмол тул дахин ачаалахад давхардахгүй.
 // Апп доторх "Жишээ өгөгдөл нэмэх", демо горим, scripts/gen-seed.mjs гурвуулаа үүнийг ашиглана.
 
-import { categoryOf, sourceOf, fmt } from './finance.js';
+import { categoryOf, sourceOf, fmtSigned } from './finance.js';
 
 export const MOCK_YEAR = 2026;
 export const ENKH = 'Энх-Амгалан';
@@ -118,10 +118,11 @@ export function buildMock(userIdOf) {
 }
 
 export function describe(kind, r) {
+  if (kind === 'achievement') return `${r.emoji} Амжилт: ${r.title}`;
   if (kind === 'income') {
     const s = sourceOf(r.source);
-    return `${s.emoji} ${fmt(r.amount)} орлого · ${s.name}${r.note ? ` · ${r.note}` : ''}`;
+    return `${s.emoji} ${fmtSigned(r.amount, 'income')} орлого · ${s.name}${r.note ? ` · ${r.note}` : ''}`;
   }
   const c = categoryOf(r.category);
-  return `${c.emoji} ${fmt(r.amount)} зарлага · ${c.name}${r.note ? ` · ${r.note}` : ''}`;
+  return `${c.emoji} ${fmtSigned(r.amount, 'expense')} зарлага · ${c.name}${r.note ? ` · ${r.note}` : ''}`;
 }

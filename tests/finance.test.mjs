@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allocate, buildLedger, fmt, fmtShort, parseAmount, monthRange, spendLevel } from '../js/finance.js';
+import { allocate, allocDelta, buildLedger, fmt, fmtShort, fmtSigned, parseAmount, monthRange, spendLevel } from '../js/finance.js';
 import { buildMock, ENKH, TSETSGEE } from '../js/mock.js';
 
 const pick = (a) => ({ household: a.household, savings: a.savings, travel: a.travel, goal: a.goal, risk: a.risk });
@@ -135,6 +135,8 @@ test('формат ба туслах функцууд', () => {
   assert.equal(fmtShort(665_000), '665 мян');
   assert.equal(fmtShort(-150_000), '-150 мян');
   assert.equal(fmtShort(500), '500₮');
+  assert.equal(fmtSigned(500_000, 'income'), '+500,000₮');
+  assert.equal(fmtSigned(45_000, 'expense'), '−45,000₮');
   assert.equal(parseAmount(''), 0);
   assert.deepEqual(monthRange('2026-11', '2027-02'), ['2026-11', '2026-12', '2027-01', '2027-02']);
   assert.equal(spendLevel(500, 1000), 'ok');
@@ -207,4 +209,12 @@ test('санамсаргүй 12 сарын гүйлгээ: шилжилт ба �
     const totalOut = expenses.filter((x) => !x.deleted).reduce((s, x) => s + x.amount, 0);
     assert.equal(totalIn, totalOut + Object.values(last.balances).reduce((s, v) => s + v, 0));
   }
+});
+
+test('allocDelta: нэг орлого данс бүрт хэд нэмснийг зөв харуулна', () => {
+  // 3,500,000 → 4,100,000: 500,000 нь хувиар, 100,000 нь илүүдэл
+  const d = allocDelta(3_500_000, 4_100_000);
+  assert.deepEqual(d, { household: 300_000, savings: 75_000, travel: 37_500, goal: 37_500, risk: 150_000 });
+  assert.equal(Object.values(d).reduce((a, b) => a + b, 0), 600_000);
+  assert.deepEqual(allocDelta(0, 2_000_000), { household: 1_200_000, savings: 200_000, travel: 100_000, goal: 100_000, risk: 400_000 });
 });

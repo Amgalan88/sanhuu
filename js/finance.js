@@ -167,6 +167,17 @@ export function fmtNum(n) {
 
 export const fmt = (n) => `${fmtNum(n)}₮`;
 
+export const MINUS = '−';
+/** Орлого "+", зарлага "−" тэмдэгтэй: +500,000₮ / −45,000₮ */
+export const fmtSigned = (n, kind) => `${kind === 'income' ? '+' : MINUS}${fmt(Math.abs(n))}`;
+
+/** Сарын орлого before → after болоход данс бүрт хэд нэмэгдсэн. */
+export function allocDelta(before, after) {
+  const a = allocate(before);
+  const b = allocate(after);
+  return Object.fromEntries(ACCOUNTS.map((x) => [x.key, b[x.key] - a[x.key]]));
+}
+
 /** Товч формат: 1,330,000 → "1.33 сая", 237,500 → "237.5 мян". */
 export function fmtShort(n) {
   const v = Math.trunc(Number(n) || 0);

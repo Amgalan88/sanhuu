@@ -168,11 +168,29 @@ h3 { font-size: 13px; color: var(--muted); font-weight: 700; margin: 16px 0 8px;
 
 .ticker-wrap { padding: 12px 16px 0; max-width: 1120px; margin: 0 auto; }
 .ticker {
-  margin: 0; padding: 10px 14px; min-height: 44px; border-radius: 14px; font-weight: 600; font-size: 14px;
-  background: var(--gold-soft); color: var(--text); border: 1px solid color-mix(in srgb, var(--gold-fill) 40%, transparent);
-  transition: opacity .35s ease, transform .35s ease;
+  position: relative; overflow: hidden; width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
+  margin: 0; padding: 10px 14px 12px; min-height: 58px; border-radius: 18px; font-weight: 700; font-size: 14.5px; line-height: 1.35;
+  color: var(--text); border: 1px solid color-mix(in srgb, var(--gold-fill) 45%, transparent);
+  background: linear-gradient(110deg, var(--gold-soft) 0%, color-mix(in srgb, var(--gold-fill) 28%, var(--surface)) 45%, var(--gold-soft) 90%);
+  background-size: 220% 100%;
+  animation: shimmer 7s ease-in-out infinite;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--gold-fill) 18%, transparent);
 }
-.ticker.out { opacity: 0; transform: translateY(-4px); }
+.t-emoji {
+  flex: 0 0 auto; width: 40px; height: 40px; display: grid; place-items: center; font-size: 26px; line-height: 1;
+  border-radius: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent);
+  animation: t-pop .55s cubic-bezier(.2, 1.6, .4, 1) both, t-wiggle 3s ease-in-out .8s infinite;
+}
+.t-text { animation: t-in .45s ease both; }
+.t-prog {
+  position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; transform-origin: left;
+  background: linear-gradient(90deg, #e8ad2a, #f8d676); animation: t-prog 6s linear both;
+}
+@keyframes shimmer { 0%, 100% { background-position: 0% 0; } 50% { background-position: 100% 0; } }
+@keyframes t-pop { from { transform: scale(.2) rotate(-25deg); opacity: 0; } }
+@keyframes t-wiggle { 0%, 80%, 100% { transform: rotate(0); } 85% { transform: rotate(-12deg) scale(1.08); } 92% { transform: rotate(10deg) scale(1.08); } }
+@keyframes t-in { from { opacity: 0; transform: translateX(14px); } }
+@keyframes t-prog { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
 /* ---------- Үндсэн ---------- */
 main {
@@ -222,6 +240,9 @@ main {
 }
 #amount::placeholder { color: var(--border); }
 .cur { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 28px; color: var(--muted); }
+.sign { font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 38px; line-height: 1; min-width: .7em; }
+.sign.neg { color: var(--bad); }
+.sign.pos { color: var(--ok); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
@@ -314,7 +335,7 @@ details[open] summary::after { transform: rotate(180deg); }
 
 /* ---------- 3D ---------- */
 .coins {
-  position: relative; height: 340px; border-radius: 18px; overflow: hidden; margin: 0 -4px;
+  position: relative; height: 340px; border-radius: 18px; overflow: hidden; margin: 0 -4px; isolation: isolate;
   background:
     radial-gradient(1px 1px at 15% 20%, #fff9, transparent),
     radial-gradient(1px 1px at 80% 12%, #fff8, transparent),
@@ -323,7 +344,7 @@ details[open] summary::after { transform: rotate(180deg); }
 }
 .coins canvas { display: block; width: 100%; height: 100%; cursor: grab; }
 .coins canvas:active { cursor: grabbing; }
-.coins-labels { position: absolute; inset: 0; pointer-events: none; }
+.coins-labels { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .coin-label {
   position: absolute; left: 0; top: 0; padding: 3px 7px; border-radius: 10px; text-align: center; white-space: nowrap;
   background: rgba(6, 16, 42, .8); color: #fff; border: 1px solid var(--c); font-size: 10.5px; line-height: 1.25;
@@ -460,12 +481,133 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bott
 
 .confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 90; }
 
+/* ---------- Баяр хөөрийн цонх ---------- */
+.celebrate {
+  position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px;
+  background: rgba(4, 10, 30, .55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  animation: fade-in .2s ease;
+}
+.celebrate.leave { opacity: 0; transition: opacity .25s ease; }
+.cel-card {
+  width: min(380px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; text-align: center;
+  padding: 22px 18px 16px; border-radius: 28px; color: #fff;
+  background: radial-gradient(ellipse at 50% 0%, #2a5fc0, #0c2461 60%, #081640);
+  border: 1px solid rgba(248, 214, 118, .45); box-shadow: 0 30px 80px rgba(0, 0, 0, .45);
+  animation: cel-in .5s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+.cel-img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 18px; margin-bottom: 8px; }
+.cel-emoji { font-size: 64px; line-height: 1.1; animation: cel-bounce 1.4s ease-in-out infinite; }
+.cel-title { font-family: 'Montserrat', 'Manrope', sans-serif; font-weight: 800; font-size: 20px; margin-top: 6px; }
+.cel-amount { font-size: 34px; font-weight: 700; color: #7cf0b4; margin-top: 4px; text-shadow: 0 0 24px rgba(124, 240, 180, .35); }
+.cel-sub { font-size: 13.5px; opacity: .8; margin-top: 2px; }
+.cel-lines { list-style: none; margin: 14px 0 0; padding: 10px 12px; border-radius: 16px; background: rgba(255, 255, 255, .08); text-align: left; }
+.cel-lines li {
+  display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; font-size: 14px; font-weight: 600;
+  animation: line-in .4s ease both; animation-delay: calc(.35s + var(--i) * .12s);
+}
+.cel-lines b { color: #ffd978; }
+.cel-foot { margin: 12px 0 14px; font-size: 14px; font-weight: 700; color: #ffd978; }
+.cel-actions { display: grid; grid-template-columns: auto 1fr; gap: 8px; }
+.cel-ok { min-height: 52px; font-size: 16px; }
+.cel-undo { min-height: 52px; padding: 0 14px; border-radius: 14px; font-weight: 700; color: #f8d676; background: rgba(255, 255, 255, .1); }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes cel-in { from { opacity: 0; transform: scale(.7) translateY(30px); } }
+@keyframes cel-bounce { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.08); } }
+@keyframes line-in { from { opacity: 0; transform: translateX(-14px); } }
+
+.emoji-rain { position: fixed; inset: 0; pointer-events: none; z-index: 85; overflow: hidden; }
+.emoji-rain span { position: absolute; top: -60px; animation: rain linear forwards; will-change: transform; }
+@keyframes rain {
+  to { transform: translate(var(--sway), calc(100vh + 120px)) rotate(var(--spin)); }
+}
+
+/* ---------- Бидний амжилтууд ---------- */
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px; border-radius: 99px;
+  font-size: 12.5px; font-weight: 700; background: var(--gold-soft); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--gold-fill) 45%, transparent);
+}
+.badge > span { font-size: 16px; }
+.badge.next {
+  color: var(--muted); border-style: dashed; border-color: var(--border);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--gold-fill) 22%, transparent) var(--p), var(--surface-2) var(--p));
+}
+.ach-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ach {
+  position: relative; margin: 0; border-radius: 18px; overflow: hidden; background: var(--surface-2);
+  border: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0;
+}
+.ach-img { display: block; width: 100%; aspect-ratio: 4 / 3; padding: 0; overflow: hidden; background: var(--track); }
+.ach-img img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .3s ease; }
+.ach-img:hover img { transform: scale(1.04); }
+.ach-ph {
+  display: grid; place-items: center; font-size: 52px;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--gold-fill) 35%, var(--surface)), var(--surface-2));
+}
+.ach-emoji {
+  position: absolute; left: 8px; top: 8px; width: 34px; height: 34px; display: grid; place-items: center;
+  font-size: 18px; border-radius: 50%; background: rgba(255, 255, 255, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
+}
+.ach figcaption { padding: 8px 10px 10px; min-width: 0; }
+.ach figcaption b { display: block; font-size: 13.5px; line-height: 1.3; overflow-wrap: anywhere; }
+.ach figcaption p { margin: 3px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.ach figcaption small { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+.ach-del { position: absolute; right: 6px; top: 6px; min-width: 34px; height: 34px; border-radius: 10px; background: rgba(255, 255, 255, .88); color: #333; font-size: 14px; }
+.ach-del.armed { background: var(--bad); color: #fff; }
+.ach-empty {
+  width: 100%; display: grid; justify-items: center; gap: 4px; padding: 22px 16px; border-radius: 18px; text-align: center;
+  border: 2px dashed color-mix(in srgb, var(--gold-fill) 55%, var(--border)); background: var(--gold-soft);
+}
+.ach-empty > span { font-size: 40px; }
+.ach-empty b { font-size: 15px; }
+.ach-empty small { font-size: 12.5px; color: var(--muted); max-width: 300px; }
+
+/* ---------- Доороос гарах цонх (sheet) ---------- */
+.sheet {
+  width: 100%; max-width: 520px; max-height: 92dvh; margin: auto auto 0; padding: 0; border: 0;
+  border-radius: 26px 26px 0 0; background: var(--surface); color: var(--text); box-shadow: 0 -10px 40px rgba(0, 0, 0, .3);
+}
+.sheet[open] { animation: sheet-up .3s cubic-bezier(.2, 1, .3, 1); }
+.sheet::backdrop { background: rgba(4, 10, 30, .55); }
+.sheet form { display: grid; gap: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; }
+.icon-x { width: 40px; height: 40px; border-radius: 12px; background: var(--surface-2); font-size: 16px; }
+.photo-pick {
+  position: relative; display: grid; place-items: center; min-height: 150px; border-radius: 18px; overflow: hidden; cursor: pointer;
+  border: 2px dashed var(--border); background: var(--surface-2);
+}
+.photo-pick.busy { pointer-events: none; }
+.photo-pick.busy::after {
+  content: '⏳ Зураг боловсруулж байна…'; position: absolute; inset: 0; display: grid; place-items: center;
+  font-weight: 700; background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+.ph-empty { display: grid; justify-items: center; gap: 2px; color: var(--muted); }
+.ph-empty > span { font-size: 36px; }
+.ph-empty b { color: var(--text); }
+.ph-empty small { font-size: 12px; }
+#ach-preview { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+.emoji-pick { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.emoji-pick button { aspect-ratio: 1; border-radius: 12px; font-size: 22px; background: var(--surface-2); border: 2px solid transparent; }
+.emoji-pick button[aria-pressed="true"] { border-color: var(--gold-fill); background: var(--gold-soft); transform: scale(1.06); }
+.sheet .save { margin-top: 0; }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+
+.lightbox {
+  max-width: min(960px, 100vw); max-height: 100dvh; padding: 0; border: 0; background: transparent; color: #fff; text-align: center;
+}
+.lightbox::backdrop { background: rgba(0, 0, 0, .88); }
+.lightbox img { max-width: 100%; max-height: 82dvh; border-radius: 16px; display: block; margin: 0 auto; }
+.lightbox p { margin: 10px 16px; font-weight: 700; }
+
 /* ---------- Том дэлгэц ---------- */
 @media (min-width: 720px) {
   .topbar { grid-template-columns: auto 1fr auto; padding-left: max(16px, calc((100% - 1120px) / 2 + 16px)); padding-right: max(16px, calc((100% - 1120px) / 2 + 16px)); }
   .month-nav { grid-column: auto; grid-row: 1; grid-column: 2; max-width: 340px; justify-self: center; width: 100%; }
   .brand { font-size: 19px; }
   .coins { height: 400px; }
+  .ach-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .sheet { margin: auto; border-radius: 26px; }
   #overview { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: center; }
   .ov-saved { margin-top: 0; }
   #coin-mode { max-width: 420px; }

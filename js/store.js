@@ -3,11 +3,15 @@
 //   LocalStore    — localStorage (Supabase тохируулаагүй үед демо)
 //
 // Интерфэйс: init() → me|null, signIn(), signOut(), loadAll(), add(kind, fields),
-// remove(kind, row, action), restore(kind, row), seedMock(), clearMock(), subscribe(cb)
+// remove(kind, row, action), restore(kind, row), addAchievement(fields, blob),
+// seedMock(), clearMock(), subscribe(cb)
+// kind: 'income' | 'expense' | 'achievement'
 
 import { buildMock, describe, ENKH, TSETSGEE } from './mock.js';
+import { blobToDataURL } from './image.js';
 
-const TABLE = { income: 'incomes', expense: 'expenses' };
+const TABLE = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
+const BUCKET = 'achievements';
 const nowISO = () => new Date().toISOString();
 
 export function uuid() {
@@ -85,13 +89,48 @@ export class SupabaseStore {
   }
 
   async loadAll() {
-    const [incomes, expenses, audit] = await Promise.all([
+    const [incomes, expenses, audit, achievements] = await Promise.all([
       this.#fetchAll('incomes'),
       this.#fetchAll('expenses'),
       this.sb.from('audit_log').select('*').order('at', { ascending: false }).limit(300)
         .then(({ data, error }) => { if (error) throw error; return data; }),
+      this.#fetchAchievements(),
     ]);
-    return { incomes, expenses, audit };
+    return { incomes, expenses, audit, achievements, achievementsMissing: this.achievementsMissing };
+  }
+
+  // achievements хүснэгт үүсээгүй (achievements.sql ажиллуулаагүй) бол апп эвдрэхгүй
+  async #fetchAchievements() {
+    const { data, error } = await this.sb.from('achievements').select('*').eq('deleted', false)
+      .order('date', { ascending: false }).order('created_at', { ascending: false });
+    if (error) {
+      this.achievementsMissing = error.code === 'PGRST205' || error.code === '42P01';
+      if (!this.achievementsMissing) console.warn('achievements', error);
+      return [];
+    }
+    this.achievementsMissing = false;
+    const paths = data.map((r) => r.image_path).filter(Boolean);
+    if (paths.length) {
+      const { data: urls } = await this.sb.storage.from(BUCKET).createSignedUrls(paths, 60 * 60 * 24);
+      const byPath = Object.fromEntries((urls || []).filter((u) => u.signedUrl).map((u) => [u.path, u.signedUrl]));
+      for (const r of data) r.image_url = byPath[r.image_path] || null;
+    }
+    return data;
+  }
+
+  async addAchievement(fields, blob) {
+    const id = uuid();
+    let image_path = null;
+    if (blob) {
+      image_path = `${this.me.user_id}/${id}.jpg`;
+      const { error } = await this.sb.storage.from(BUCKET).upload(image_path, blob, { contentType: 'image/jpeg', upsert: false });
+      if (error) throw new Error(`Зураг upload хийж чадсангүй: ${error.message}`);
+    }
+    const { data, error } = await this.sb.from('achievements')
+      .insert({ id, ...fields, image_path, created_by: this.me.user_id }).select().single();
+    if (error) throw error;
+    await this.#audit('add', describe('achievement', data), data.id);
+    return { ...data, image_url: blob ? URL.createObjectURL(blob) : null };
   }
 
   async #audit(action, text, ref_id = null) {
@@ -144,6 +183,7 @@ export class SupabaseStore {
     this.channel = this.sb.channel('bidnii-sanhuu')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'incomes' }, change)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, change)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'achievements' }, change)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_log' }, (p) => {
         if (p.eventType === 'INSERT') cb({ type: 'audit', row: p.new });
         change();
@@ -169,16 +209,23 @@ export class LocalStore {
   #read() {
     try {
       const db = JSON.parse(localStorage.getItem(DB_KEY));
-      if (db?.incomes) return db;
+      if (db?.incomes) {
+        db.achievements ||= [];
+        return db;
+      }
     } catch { /* эвдэрсэн эсвэл хандах эрхгүй */ }
-    const db = buildMock(mockOwner(this.admins));
+    const db = { ...buildMock(mockOwner(this.admins)), achievements: [] };
     this.#write(db);
     return db;
   }
 
   #write(db) {
     this.db = db;
-    try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch { /* private mode */ }
+    try {
+      localStorage.setItem(DB_KEY, JSON.stringify(db));
+    } catch (e) {
+      if (e?.name === 'QuotaExceededError') throw new Error('Демо горимын сан дүүрлээ — зургийн тоог багасгана уу');
+    }
   }
 
   async init() {
@@ -206,7 +253,29 @@ export class LocalStore {
       incomes: db.incomes.filter((r) => !r.deleted),
       expenses: db.expenses.filter((r) => !r.deleted),
       audit: [...db.audit].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 300),
+      achievements: db.achievements.filter((r) => !r.deleted)
+        .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at)),
+      achievementsMissing: false,
     };
+  }
+
+  async addAchievement(fields, blob) {
+    const image_url = blob ? await blobToDataURL(blob) : null;
+    const db = this.#read();
+    const row = {
+      id: uuid(), ...fields, image_path: null, image_url, created_by: this.me.user_id, created_at: nowISO(),
+      deleted: false, deleted_by: null, deleted_at: null,
+    };
+    db.achievements.push(row);
+    this.#audit(db, 'add', describe('achievement', row), row.id);
+    try {
+      this.#write(db);
+    } catch (e) {
+      db.achievements.pop();
+      db.audit.pop();
+      throw e;
+    }
+    return row;
   }
 
   #audit(db, action, text, ref_id = null) {

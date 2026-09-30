@@ -1,13 +1,15 @@
 import {
   TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
-  fmt, fmtNum, fmtShort, parseAmount,
+  fmt, fmtNum, fmtShort, fmtSigned, allocDelta, MINUS, parseAmount,
 } from './finance.js';
 import { describe } from './mock.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { SupabaseStore, LocalStore } from './store.js';
 import { createCoins3D } from './coins3d.js';
 import { confetti } from './confetti.js';
+import { celebrate, pick } from './celebrate.js';
+import { resizeImage } from './image.js';
 
 // ============================================================
 // Туслах
@@ -22,6 +24,18 @@ const ACC = Object.fromEntries(ACCOUNTS.map((a) => [a.key, a]));
 
 const EXPENSE_CHIPS = [5_000, 10_000, 20_000, 50_000, 100_000];
 const INCOME_CHIPS = [[500_000, '+500,000'], [1_000_000, '+1 сая'], [1_800_000, '+1.8 сая'], [2_000_000, '+2 сая']];
+const INCOME_CHEERS = [
+  'Гайхалтай! Орлого орлоо 🎉', 'Та хоёр чинь супер баг! 💪', 'Мөрөөдөл рүүгээ нэг алхам ойртлоо ✨',
+  'Хөдөлмөрийн үр шим! 🌟', 'Бахархаж байна! 🥰', 'Хуримтлал өсөж байна! 📈',
+];
+const EXPENSE_CHEERS = [
+  'Баярлалаа! 🙌', 'Хөтөлж байгаа нь өөрөө амжилт 👏', 'Ухаалаг зарцуулалт 🧠',
+  'Сайн байна, үргэлжлүүлээрэй 🌿', 'Мөнгөө мэддэг гэр бүл 💪',
+];
+const ACH_EMOJIS = ['🏆', '🎉', '🏠', '✈️', '🎯', '💍', '👶', '🚗', '🎓', '💪', '❤️', '🌟', '🏦', '🛡️', '🎂', '🌱'];
+const SAVED_MILESTONES = [1e6, 3e6, 5e6, 10e6, 20e6, 30e6, 50e6, 100e6];
+const LIST = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
+
 const ACTION = {
   add: ['нэмсэн', 'нэмлээ'], delete: ['устгасан', 'устгалаа'], undo: ['буцаасан', 'буцаалаа'],
   restore: ['сэргээсэн', 'сэргээлээ'], seed_mock: ['жишээ нэмсэн', 'жишээ өгөгдөл нэмлээ'],
@@ -43,6 +57,9 @@ const S = {
   saving: false,
   coins: null,
   coinMode: 'total',
+  achievements: [],
+  achievementsMissing: false,
+  ach: { emoji: '🏆', blob: null },
 };
 
 const adminOf = (id) => S.store.admins.find((a) => a.user_id === id) || { emoji: '🙂', name: 'Тодорхойгүй' };
@@ -123,6 +140,7 @@ async function enterApp() {
     started = true;
     buildQuick();
     wireGlobal();
+    wireAchievements();
     setView(location.hash.slice(1) || 'home', false);
     startTicker();
   }
@@ -249,12 +267,16 @@ function updateQuick() {
   const isExp = kind === 'expense';
   $$('#cats .cat').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cat === cat)));
 
+  const sign = $('#amount-sign');
+  sign.textContent = isExp ? MINUS : '+';
+  sign.className = `sign ${isExp ? 'neg' : 'pos'}`;
+
   const btn = $('#save');
   const ready = amount > 0 && cat;
   btn.classList.toggle('idle', !ready);
   btn.textContent = !amount ? '✍️ Дүнгээ оруулна уу'
     : !cat ? '👆 Ангиллаа сонгоно уу'
-    : `✅ ${fmt(amount)} ${isExp ? 'зарлага' : 'орлого'} хадгалах`;
+    : `✅ ${fmtSigned(amount, kind)} ${isExp ? 'зарлага' : 'орлого'} хадгалах`;
 
   // Урьдчилсан харагдац
   const date = $('#date').value || todayISO();
@@ -334,13 +356,11 @@ async function save() {
     recompute();
     renderAll();
 
-    const e = kind === 'expense' ? categoryOf(cat).emoji : sourceOf(cat).emoji;
-    toast(`${e} ${fmt(amount)} хадгаллаа. Баярлалаа! 🙌`, { undo: () => undoAdd(kind, row) });
-
-    const after = incomeBefore + (kind === 'income' ? amount : 0);
-    if (kind === 'income' && ((incomeBefore < TARGET && after >= TARGET) || (incomeBefore <= TARGET && after > TARGET))) {
-      confetti();
-      setTimeout(() => toast(after > TARGET ? `🎉 Илүүдэл ${fmt(after - TARGET)}! Хуримтлал өслөө` : '🏆 4 саяын зорилт биеллээ!'), 600);
+    const undo = () => undoAdd(kind, row);
+    if (kind === 'expense') {
+      toast(`${categoryOf(cat).emoji} ${fmtSigned(amount, 'expense')} хадгаллаа. ${pick(EXPENSE_CHEERS)}`, { undo });
+    } else {
+      celebrateIncome(cat, amount, incomeBefore, undo); // "Буцаах" нь баярын цонх дотор
     }
     scheduleReload(800);
   } catch (err) {
@@ -349,6 +369,27 @@ async function save() {
     S.saving = false;
     $('#save').classList.remove('busy');
   }
+}
+
+// Орлого бүртгэхэд: энэ орлого аль дансанд хэдийг нэмснийг харуулж урамшуулна
+function celebrateIncome(cat, amount, before, undo) {
+  const after = before + amount;
+  const d = allocDelta(before, after);
+  const reached = before < TARGET && after >= TARGET;
+  const excessNow = before <= TARGET && after > TARGET;
+  const src = sourceOf(cat);
+  celebrate({
+    emoji: reached || excessNow ? '🏆' : '💰',
+    title: excessNow ? 'Илүүдэлтэй сар боллоо! 🎉' : reached ? '4 саяын зорилт биеллээ! 🏆' : pick(INCOME_CHEERS),
+    amount: fmtSigned(amount, 'income'),
+    sub: `${src.emoji} ${src.name} · ${S.me.emoji} ${S.me.name}`,
+    lines: ACCOUNTS.filter((a) => d[a.key] > 0).map((a) => [`${a.emoji} ${a.name}`, `+${fmt(d[a.key])}`]),
+    foot: after > TARGET ? `🎁 Энэ сарын илүүдэл ${fmt(after - TARGET)} — хуримтлал өслөө!`
+      : after === TARGET ? '🏆 Энэ сарын 4 саяын зорилт биелсэн!'
+      : `🎯 Зорилт хүртэл ${fmt(TARGET - after)} үлдлээ — чадна!`,
+    undo,
+  });
+  if (reached || excessNow) confetti();
 }
 
 async function undoAdd(kind, row) {
@@ -363,7 +404,7 @@ async function undoAdd(kind, row) {
 }
 
 function dropLocal(kind, id) {
-  const key = kind === 'expense' ? 'expenses' : 'incomes';
+  const key = LIST[kind];
   S[key] = S[key].filter((r) => r.id !== id);
   recompute();
   renderAll();
@@ -384,6 +425,7 @@ function renderAll() {
   renderHistory();
   renderAudit();
   renderMore();
+  renderAchievements();
   updateQuick();
   refreshTicker();
 }
@@ -428,7 +470,7 @@ function renderSummary() {
   $('#summary').innerHTML = `
     <h2>📅 ${monthLabel(S.month, false)}</h2>
 
-    <div class="sum-row"><span>💼 Орлого</span><b class="num">${fmt(r.income)}</b></div>
+    <div class="sum-row"><span>💼 Орлого</span><b class="num ${r.income ? 'pos' : ''}">${r.income ? fmtSigned(r.income, 'income') : fmt(0)}</b></div>
     <div class="bar" role="progressbar" aria-valuenow="${Math.round(goalPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="4 саяын зорилт"><i style="width:${goalPct}%"></i></div>
     <div class="between"><span>${goalText}</span><span>зорилт ${fmtNum(TARGET)}</span></div>
 
@@ -507,11 +549,11 @@ function renderBreakdown() {
       <div class="cat-row">
         <span class="e">${c.emoji}</span>
         <div>
-          <div class="top"><span>${c.name} <span class="muted">${Math.round((c.sum / total) * 100)}%</span></span><span class="num">${fmt(c.sum)}</span></div>
+          <div class="top"><span>${c.name} <span class="muted">${Math.round((c.sum / total) * 100)}%</span></span><span class="num">${fmtSigned(c.sum, 'expense')}</span></div>
           <div class="bar"><i style="width:${(c.sum / max) * 100}%"></i></div>
         </div>
       </div>`).join('')}</div>
-      <div class="between" style="margin-top:12px"><span>Нийт</span><b class="num" style="color:var(--text)">${fmt(total)}</b></div>`
+      <div class="between" style="margin-top:12px"><span>Нийт</span><b class="num" style="color:var(--text)">${fmtSigned(total, 'expense')}</b></div>`
     : '<p class="empty">Энэ сард зарлага алга 🌿</p>'}`;
 }
 
@@ -526,7 +568,7 @@ function txRow(kind, r) {
         <div class="tx-sub">${shortDate(r.date)} · ${a.emoji} ${esc(a.name)} бүртгэсэн</div>
       </div>
       <div class="tx-right">
-        <b class="tx-amt num ${kind === 'income' ? 'pos' : ''}">${kind === 'income' ? '+' : '−'}${fmt(r.amount)}</b>
+        <b class="tx-amt num ${kind === 'income' ? 'pos' : ''}">${fmtSigned(r.amount, kind)}</b>
         <button type="button" class="del" data-del="${kind}:${r.id}" aria-label="Устгах">🗑️</button>
       </div>
     </li>`;
@@ -536,7 +578,7 @@ function renderExpenses() {
   const rows = filteredExpenses().sort(byNewest);
   const total = rows.reduce((s, r) => s + r.amount, 0);
   $('#expenses').innerHTML = `
-    <div class="card-head"><h2>🧾 Зарлага <span class="muted num" style="font-size:13px">· ${rows.length}</span></h2><b class="num">${fmt(total)}</b></div>
+    <div class="card-head"><h2>🧾 Зарлага <span class="muted num" style="font-size:13px">· ${rows.length}</span></h2><b class="num">${total ? fmtSigned(total, 'expense') : fmt(0)}</b></div>
     ${rows.length ? `<ul class="list">${rows.map((r) => txRow('expense', r)).join('')}</ul>` : '<p class="empty">Бүртгэл алга</p>'}`;
 }
 
@@ -544,7 +586,7 @@ function renderIncomes() {
   const rows = inMonth(S.incomes).sort(byNewest);
   const total = rows.reduce((s, r) => s + r.amount, 0);
   $('#incomes').innerHTML = `
-    <div class="card-head"><h2>💰 Орлого <span class="muted num" style="font-size:13px">· ${rows.length}</span></h2><b class="num pos">${fmt(total)}</b></div>
+    <div class="card-head"><h2>💰 Орлого <span class="muted num" style="font-size:13px">· ${rows.length}</span></h2><b class="num pos">${total ? fmtSigned(total, 'income') : fmt(0)}</b></div>
     ${rows.length ? `<ul class="list">${rows.map((r) => txRow('income', r)).join('')}</ul>` : '<p class="empty">Энэ сард орлого бүртгэгдээгүй</p>'}`;
 }
 
@@ -567,10 +609,10 @@ function renderHistory() {
           ${rows.map((r) => `
             <tr class="${r.month === S.month ? 'sel' : ''}">
               <td>${monthLabel(r.month, r.month.slice(0, 4) !== cur.slice(0, 4))}</td>
-              <td>${fmtNum(r.income)}</td>
+              <td class="${r.income ? 'pos' : ''}">${r.income ? `+${fmtNum(r.income)}` : '0'}</td>
               <td>${r.excess ? `+${fmtNum(r.excess)}` : '—'}</td>
               ${ACCOUNTS.map((a) => `<td>${fmtNum(r.alloc[a.key])}</td>`).join('')}
-              <td>${fmtNum(r.spent)}</td>
+              <td>${r.spent ? `${MINUS}${fmtNum(r.spent)}` : '0'}</td>
               <td class="${r.householdLeft < 0 ? 'neg' : 'pos'}">${r.householdLeft > 0 ? '+' : ''}${fmtNum(r.householdLeft)}</td>
             </tr>`).join('')}
         </tbody>
@@ -612,6 +654,171 @@ function renderAudit() {
     }).join('')}</ul>
     ${S.audit.length > S.auditLimit ? '<button type="button" class="btn block" id="audit-more" style="margin-top:8px">Цааш харах ↓</button>' : ''}`
     : '<p class="empty">Одоогоор үйлдэл алга</p>'}`;
+}
+
+// ---------- Бидний амжилтууд ----------
+function savedNow() {
+  const r = rowOf(currentMonth());
+  return SAVING_KEYS.reduce((s, k) => s + r.balances[k], 0);
+}
+
+// Орлого/зарлагаас автоматаар тооцох медалиуд
+function autoBadges() {
+  const cur = currentMonth();
+  const L = S.ledger.filter((r) => r.month <= cur && (r.income || r.spent));
+  const goal = L.filter((r) => r.income >= TARGET).length;
+  const excess = L.filter((r) => r.excess > 0).length;
+  const clean = L.filter((r) => r.month < cur && r.available > 0 && r.householdLeft >= 0).length;
+  let streak = 0;
+  for (let i = L.length - 1; i >= 0; i--) {
+    if (L[i].income >= TARGET) streak++;
+    else if (L[i].month === cur && streak === 0) continue; // энэ сар дуусаагүй
+    else break;
+  }
+  const saved = savedNow();
+  const reached = SAVED_MILESTONES.filter((m) => saved >= m).at(-1);
+  const next = SAVED_MILESTONES.find((m) => saved < m);
+  const badges = [];
+  if (goal) badges.push(['🏆', `Зорилт ${goal} удаа биелсэн`]);
+  if (streak >= 2) badges.push(['🔥', `${streak} сар дараалан`]);
+  if (excess) badges.push(['🎉', `Илүүдэлтэй ${excess} сар`]);
+  if (clean) badges.push(['🌿', `Хэтрэлтгүй ${clean} сар`]);
+  if (reached) badges.push(['💎', `Хуримтлал ${fmtShort(reached)}`]);
+  return { badges, saved, next };
+}
+
+function achCard(r) {
+  const a = adminOf(r.created_by);
+  const yr = r.date.slice(0, 4) === todayISO().slice(0, 4) ? '' : `${r.date.slice(0, 4)}-`;
+  return `
+    <figure class="ach">
+      ${r.image_url
+        ? `<button type="button" class="ach-img" data-ach-view="${r.id}" aria-label="Томруулж харах"><img src="${esc(r.image_url)}" alt="${esc(r.title)}" loading="lazy"></button>`
+        : `<div class="ach-img ach-ph" aria-hidden="true">${esc(r.emoji)}</div>`}
+      <span class="ach-emoji" aria-hidden="true">${esc(r.emoji)}</span>
+      <figcaption>
+        <b>${esc(r.title)}</b>
+        ${r.note ? `<p>${esc(r.note)}</p>` : ''}
+        <small>${yr}${shortDate(r.date)} · ${a.emoji} ${esc(a.name)}</small>
+      </figcaption>
+      <button type="button" class="del ach-del" data-del="achievement:${r.id}" aria-label="Устгах">🗑️</button>
+    </figure>`;
+}
+
+function renderAchievements() {
+  const { badges, saved, next } = autoBadges();
+  const list = [...S.achievements].sort((x, y) => y.date.localeCompare(x.date) || String(y.created_at).localeCompare(String(x.created_at)));
+  $('#achievements').innerHTML = `
+    <div class="card-head"><h2>🏆 Бидний амжилтууд</h2><button type="button" class="btn small primary" data-ach-add>📸 Нэмэх</button></div>
+    <div class="badges">
+      ${badges.map(([e, t]) => `<span class="badge"><span>${e}</span>${t}</span>`).join('')}
+      ${next ? `<span class="badge next" style="--p:${pct(saved, next)}%"><span>🔒</span>${fmtShort(next)} хүртэл ${fmtShort(next - saved)}</span>` : ''}
+    </div>
+    ${S.achievementsMissing ? '<p class="note">⚠️ Зураг нэмэхийн тулд Supabase → SQL Editor дээр <b>supabase/achievements.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : ''}
+    ${list.length
+      ? `<div class="ach-grid">${list.map(achCard).join('')}</div>`
+      : `<button type="button" class="ach-empty" data-ach-add>
+          <span>📸</span><b>Эхний амжилтаа нэмээрэй!</b>
+          <small>Хадгаламж 1 сая хүрсэн, аялалд явсан, шинэ байранд орсон… зураг, эможитой нь тэмдэглээрэй</small>
+        </button>`}`;
+}
+
+function openAchSheet() {
+  if (S.achievementsMissing) {
+    toast('⚠️ Эхлээд Supabase дээр supabase/achievements.sql-ийг ажиллуулна уу', { kind: 'err', ms: 6000 });
+    return;
+  }
+  S.ach = { emoji: '🏆', blob: null };
+  $('#ach-title').value = '';
+  $('#ach-note').value = '';
+  $('#ach-date').value = todayISO();
+  $('#ach-file').value = '';
+  setAchPreview(null);
+  $('#ach-emojis').innerHTML = ACH_EMOJIS.map((e) => `<button type="button" data-ach-emoji="${e}" aria-pressed="${e === S.ach.emoji}">${e}</button>`).join('');
+  $('#ach-sheet').showModal();
+}
+
+function setAchPreview(url) {
+  const img = $('#ach-preview');
+  if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+  img.hidden = !url;
+  $('#photo-pick .ph-empty').hidden = !!url;
+  if (url) img.src = url; else img.removeAttribute('src');
+}
+
+function wireAchievements() {
+  const sheet = $('#ach-sheet');
+  sheet.addEventListener('click', (e) => {
+    if (e.target === sheet || e.target.closest('[data-close]')) sheet.close();
+    const b = e.target.closest('[data-ach-emoji]');
+    if (b) {
+      S.ach.emoji = b.dataset.achEmoji;
+      $$('#ach-emojis button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }
+  });
+
+  $('#ach-file').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const pickEl = $('#photo-pick');
+    pickEl.classList.add('busy');
+    S.ach.pending = (async () => {
+      try {
+        // Демо горимд localStorage багтаах тул жижиг
+        S.ach.blob = await resizeImage(f, S.store.mode === 'demo' ? { max: 1024, quality: 0.72 } : {});
+        setAchPreview(URL.createObjectURL(S.ach.blob));
+      } catch (err) {
+        S.ach.blob = null;
+        toast(`⚠️ ${err.message}`, { kind: 'err' });
+      } finally {
+        pickEl.classList.remove('busy');
+      }
+    })();
+  });
+
+  $('#ach-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = $('#ach-title').value.trim();
+    if (!title) { shake($('#ach-title')); $('#ach-title').focus(); return; }
+    const btn = $('#ach-save');
+    btn.classList.add('busy');
+    btn.textContent = '⏳ Хадгалж байна…';
+    try {
+      await S.ach.pending; // зураг боловсруулж дуусахыг хүлээнэ
+      if (S.ach.blob) btn.textContent = '⏳ Зураг илгээж байна…';
+      const row = await S.store.addAchievement({
+        date: $('#ach-date').value || todayISO(), title: title.slice(0, 120),
+        emoji: S.ach.emoji, note: $('#ach-note').value.trim().slice(0, 300),
+      }, S.ach.blob);
+      S.achievements.unshift(row);
+      sheet.close();
+      renderAchievements();
+      refreshTicker();
+      celebrate({
+        emoji: row.emoji, title: row.title, sub: `Амжилт нэмэгдлээ! 🌟 · ${S.me.emoji} ${S.me.name}`,
+        image: row.image_url, foot: 'Хамтдаа бүтээсэн амжилт бүр чухал 💑',
+        rain: [row.emoji, '✨', '🎉', '🌟'], button: 'Хамтдаа урагшаа! 🙌',
+      });
+      confetti();
+      scheduleReload(1500);
+    } catch (err) {
+      toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
+    } finally {
+      btn.classList.remove('busy');
+      btn.textContent = '✨ Амжилт хадгалах';
+    }
+  });
+
+  const lb = $('#lightbox');
+  lb.addEventListener('click', () => lb.close());
+}
+
+function openLightbox(id) {
+  const r = S.achievements.find((x) => x.id === id);
+  if (!r?.image_url) return;
+  $('#lightbox img').src = r.image_url;
+  $('#lightbox p').textContent = `${r.emoji} ${r.title}`;
+  $('#lightbox').showModal();
 }
 
 // ---------- Бусад ----------
@@ -677,8 +884,31 @@ function tickerMessages() {
   if (b.risk > 0) m.push(`🛡️ Эрсдэлийн сан ${fmt(b.risk)} — тайван байна`);
   if (b.travel > 0) m.push(`✈️ Аяллын санд ${fmt(b.travel)} хуримтлагдлаа`);
   if (b.goal > 0) m.push(`🎯 Зорилтот санд ${fmt(b.goal)} — мөрөөдөлдөө ойртож байна`);
+
+  const saved = SAVING_KEYS.reduce((s, k) => s + b[k], 0);
+  const next = SAVED_MILESTONES.find((x) => saved < x);
+  if (next && saved > 0) m.push(`💎 Хуримтлал ${fmtShort(next)} хүрэхэд ${fmt(next - saved)} л үлдлээ`);
+  const entries = S.expenses.filter((x) => monthKey(x.date) === S.month).length + S.incomes.filter((x) => monthKey(x.date) === S.month).length;
+  if (entries >= 5) m.push(`✍️ Энэ сард ${entries} бүртгэл хийлээ — сахилга бат гайхалтай!`);
+  if (S.achievements.length) m.push(`📸 ${S.achievements.length} амжилтаа тэмдэглэсэн — дараагийнх юу вэ?`);
+
+  const h = new Date().getHours();
+  const name = S.me?.name || '';
+  m.push(h < 11 ? `☀️ Өглөөний мэнд, ${name}! Өнөөдөр ч гэсэн амжилт хүсье`
+    : h >= 18 ? `🌙 Оройн мэнд, ${name}! Өнөөдрийн зарлагаа бүртгэсэн үү?`
+    : `🌤️ Сайн байна уу, ${name}! Та хоёр гайхалтай явж байна`);
+  m.push(`💑 ${S.store.admins.map((a) => a.name).join(' ба ')} — хамтдаа гайхалтай баг!`);
   m.push('🤝 Хамтдаа төлөвлөвөл бүх зүйл боломжтой');
   return m;
+}
+
+const EMOJI_HEAD = /^((?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:\uFE0F|\u200D\p{Extended_Pictographic})*)\s*/u;
+function showTicker() {
+  const msg = tickerMsgs[tickerIdx] || '';
+  const m = msg.match(EMOJI_HEAD);
+  const emoji = m ? m[1] : '✨';
+  const text = m ? msg.slice(m[0].length) : msg;
+  $('#ticker').innerHTML = `<span class="t-emoji">${emoji}</span><span class="t-text">${esc(text)}</span><i class="t-prog"></i>`;
 }
 
 function refreshTicker() {
@@ -686,18 +916,20 @@ function refreshTicker() {
   if (next.join('|') === tickerMsgs.join('|')) return;
   tickerMsgs = next;
   tickerIdx = 0;
-  $('#ticker').textContent = tickerMsgs[0];
+  showTicker();
 }
 
+let tickerTimer = 0;
 function startTicker() {
-  setInterval(() => {
+  const step = () => {
     if (!tickerMsgs.length || document.hidden) return;
-    const el = $('#ticker');
     tickerIdx = (tickerIdx + 1) % tickerMsgs.length;
-    if (reducedMotion) { el.textContent = tickerMsgs[tickerIdx]; return; }
-    el.classList.add('out');
-    setTimeout(() => { el.textContent = tickerMsgs[tickerIdx]; el.classList.remove('out'); }, 350);
-  }, 6000);
+    showTicker();
+  };
+  const restart = () => { clearInterval(tickerTimer); tickerTimer = setInterval(step, 6000); };
+  // Товшвол дараагийн мессеж
+  $('#ticker').addEventListener('click', () => { step(); restart(); });
+  restart();
 }
 
 // ============================================================
@@ -781,6 +1013,10 @@ function wireGlobal() {
     const c = e.target.closest('[data-clear-mock]');
     if (c) return armThen(c, '⚠️ Тийм, бүгдийг арилгах', clearMock);
 
+    if (e.target.closest('[data-ach-add]')) return openAchSheet();
+    const av = e.target.closest('[data-ach-view]');
+    if (av) return openLightbox(av.dataset.achView);
+
     const cm = e.target.closest('[data-coin-mode]');
     if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
 
@@ -811,16 +1047,17 @@ function armThen(btn, label, action) {
 }
 
 async function deleteRow(kind, id) {
-  const row = (kind === 'expense' ? S.expenses : S.incomes).find((r) => r.id === id);
+  const row = S[LIST[kind]].find((r) => r.id === id);
   if (!row) return;
   try {
     await S.store.remove(kind, row, 'delete');
     dropLocal(kind, id);
-    toast(`🗑️ ${fmt(row.amount)} ${kind === 'expense' ? 'зарлага' : 'орлого'} устгалаа`, {
+    const what = kind === 'achievement' ? `${row.emoji} “${row.title}”` : `${fmtSigned(row.amount, kind)} ${kind === 'expense' ? 'зарлага' : 'орлого'}`;
+    toast(`🗑️ ${what} устгалаа`, {
       undo: async () => {
         try {
           await S.store.restore(kind, row);
-          (kind === 'expense' ? S.expenses : S.incomes).push({ ...row, deleted: false });
+          S[LIST[kind]].push({ ...row, deleted: false });
           recompute();
           renderAll();
           toast('♻️ Сэргээлээ');
