@@ -3,7 +3,7 @@
 //   LocalStore    — localStorage (Supabase тохируулаагүй үед демо)
 //
 // Интерфэйс: init() → me|null, signIn(), signOut(), loadAll(), add(kind, fields),
-// remove(kind, row, action), restore(kind, row), addAchievement(fields, blob),
+// remove(kind, row, action), restore(kind, row), addAchievement(fields, images{full,thumb}),
 // setAvatar(blob|null), subscribe(cb)
 // kind: 'income' | 'expense' | 'achievement'
 
@@ -13,6 +13,7 @@ import { blobToDataURL } from './image.js';
 const TABLE = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
 const BUCKET = 'achievements'; // амжилтын зураг: <user_id>/<id>.jpg, профайл: avatars/<user_id>-<ts>.jpg
 const SIGN_TTL = 60 * 60 * 24;
+const thumbOf = (path) => path.replace(/\.jpg$/, '_t.jpg'); // жижиг хувилбар: <id>_t.jpg
 const nowISO = () => new Date().toISOString();
 
 export function uuid() {
@@ -119,7 +120,9 @@ export class SupabaseStore {
       return [];
     }
     this.achievementsMissing = false;
-    await this.#sign(data, 'image_path', 'image_url');
+    for (const r of data) r.thumb_path = r.image_path ? thumbOf(r.image_path) : null;
+    await Promise.all([this.#sign(data, 'image_path', 'image_url'), this.#sign(data, 'thumb_path', 'thumb_url')]);
+    for (const r of data) r.thumb_url ||= r.image_url; // хуучин (жижиг хувилбаргүй) зураг
     return data;
   }
 
@@ -128,15 +131,19 @@ export class SupabaseStore {
     if (error) throw new Error(`Зураг upload хийж чадсангүй: ${error.message}`);
   }
 
-  async addAchievement(fields, blob) {
+  async addAchievement(fields, images) {
     const id = uuid();
-    const image_path = blob ? `${this.me.user_id}/${id}.jpg` : null;
-    if (blob) await this.#upload(image_path, blob);
+    const image_path = images ? `${this.me.user_id}/${id}.jpg` : null;
+    if (images) await Promise.all([this.#upload(image_path, images.full), this.#upload(thumbOf(image_path), images.thumb)]);
     const { data, error } = await this.sb.from('achievements')
       .insert({ id, ...fields, image_path, created_by: this.me.user_id }).select().single();
     if (error) throw error;
     await this.#audit('add', describe('achievement', data), data.id);
-    return { ...data, image_url: blob ? URL.createObjectURL(blob) : null };
+    return {
+      ...data,
+      image_url: images ? URL.createObjectURL(images.full) : null,
+      thumb_url: images ? URL.createObjectURL(images.thumb) : null,
+    };
   }
 
   async setAvatar(blob) {
@@ -287,11 +294,12 @@ export class LocalStore {
     });
   }
 
-  async addAchievement(fields, blob) {
-    const image_url = blob ? await blobToDataURL(blob) : null;
+  async addAchievement(fields, images) {
+    const image_url = images ? await blobToDataURL(images.full) : null;
+    const thumb_url = images ? await blobToDataURL(images.thumb) : null;
     return this.#mutate((db) => {
       const row = {
-        id: uuid(), ...fields, image_path: null, image_url, created_by: this.me.user_id, created_at: nowISO(),
+        id: uuid(), ...fields, image_path: null, image_url, thumb_url, created_by: this.me.user_id, created_at: nowISO(),
         deleted: false, deleted_by: null, deleted_at: null,
       };
       db.achievements.push(row);

@@ -8,7 +8,7 @@ import { SupabaseStore, LocalStore } from './store.js';
 import { createCoins3D } from './coins3d.js';
 import { confetti } from './confetti.js';
 import { celebrate, pick } from './celebrate.js';
-import { resizeImage, resizeSquare } from './image.js';
+import { achievementImages, resizeSquare } from './image.js';
 
 // ============================================================
 // Туслах
@@ -692,7 +692,7 @@ function achCard(r, hero) {
   return `
     <button type="button" class="ach ${hero ? 'hero' : ''} ${r.image_url ? '' : 'no-img'}" data-ach-open="${r.id}" aria-label="${esc(r.title)}">
       ${r.image_url
-        ? `<img src="${esc(r.image_url)}" alt="" loading="lazy">`
+        ? `<img src="${esc(hero ? r.image_url : (r.thumb_url || r.image_url))}" alt="" loading="lazy">`
         : `<span class="ach-big" aria-hidden="true">${esc(r.emoji)}</span>`}
       ${r.image_url ? `<span class="ach-emoji" aria-hidden="true">${esc(r.emoji)}</span>` : ''}
       <span class="ach-body">
@@ -708,11 +708,11 @@ function renderAchievements() {
   const tile = (e, v, label) => `<div class="stat ${v ? '' : 'off'}"><span>${e}</span><b class="num">${v}</b><small>${label}</small></div>`;
   $('#achievements').innerHTML = `
     <div class="ach-head">
-      <div>
+      <div class="ach-head-text">
         <h2>🏆 Бидний амжилтууд</h2>
         <small>${list.length ? `${list.length} дурсамж хадгалагдсан` : 'Хамтдаа бүтээсэн мөчүүд'}</small>
       </div>
-      <button type="button" class="ach-add" data-ach-add>＋ Нэмэх</button>
+      <button type="button" class="ach-add" data-ach-add aria-label="Амжилт нэмэх">＋<span class="lbl"> Нэмэх</span></button>
     </div>
 
     <div class="stats">
@@ -737,27 +737,105 @@ function renderAchievements() {
         </button>`}`;
 }
 
-// Дэлгэрэнгүй: том зураг, тайлбар, хэн нэмсэн. Устгах товч зөвхөн энд.
-function openAchDetail(id) {
-  const r = S.achievements.find((x) => x.id === id);
-  if (!r) return;
+// ---------- Бүтэн дэлгэцийн харагдац ----------
+// Шударч дараагийн/өмнөх, доош шударч хаах, 2 товшиж томруулах, 1 товшиж бичвэрийг нуух.
+const VW = { list: [], i: 0, zoom: false, ui: true };
+
+function openViewer(id) {
+  VW.list = sortAch(S.achievements);
+  VW.i = Math.max(0, VW.list.findIndex((x) => x.id === id));
+  VW.ui = true;
+  showViewerItem();
+  $('#viewer').showModal();
+}
+
+function showViewerItem() {
+  const r = VW.list[VW.i];
+  if (!r) return $('#viewer').close();
   const a = adminOf(r.created_by);
-  $('#ach-detail').innerHTML = `
-    <div class="detail-card">
-      ${r.image_url
-        ? `<div class="detail-media"><img src="${esc(r.image_url)}" alt="${esc(r.title)}"></div>`
-        : `<div class="detail-media no-img"><span>${esc(r.emoji)}</span></div>`}
-      <div class="detail-body">
-        <h2 class="detail-title">${r.image_url ? `${esc(r.emoji)} ` : ''}${esc(r.title)}</h2>
-        ${r.note ? `<p class="detail-note">${esc(r.note)}</p>` : ''}
-        <div class="detail-meta">${av(a, 'sm')} <span><b>${esc(a.name)}</b> нэмсэн · ${longDate(r.date, true)}</span></div>
-        <div class="detail-actions">
-          <button type="button" class="link-danger" data-del="achievement:${r.id}">🗑️ Устгах</button>
-          <button type="button" class="btn primary" data-close autofocus>Хаах</button>
-        </div>
-      </div>
-    </div>`;
-  $('#ach-detail').showModal();
+  const n = VW.list.length;
+  VW.zoom = false;
+  const stage = $('#vw-stage');
+  stage.classList.remove('zoomed');
+  stage.scrollTo(0, 0);
+  stage.innerHTML = r.image_url
+    ? `<img src="${esc(r.image_url)}" alt="${esc(r.title)}" draggable="false">`
+    : `<div class="vw-emoji">${esc(r.emoji)}</div>`;
+  $('#vw-info').innerHTML = `
+    <div class="vw-title">${esc(r.emoji)} ${esc(r.title)}</div>
+    ${r.note ? `<p class="vw-note">${esc(r.note)}</p>` : ''}
+    <div class="vw-meta">${av(a, 'sm')} <span><b>${esc(a.name)}</b> · ${longDate(r.date, true)}</span></div>`;
+  $('#vw-count').textContent = n > 1 ? `${VW.i + 1} / ${n}` : '';
+  $('#vw-prev').hidden = VW.i === 0;
+  $('#vw-next').hidden = VW.i === n - 1;
+  const del = $('#vw-del');
+  clearTimeout(del._t);
+  del.classList.remove('armed');
+  del.textContent = '🗑️';
+  del.dataset.del = `achievement:${r.id}`;
+  $('#viewer').classList.toggle('hide-ui', !VW.ui);
+  // Хөрш зургуудыг урьдчилан ачаална
+  for (const j of [VW.i - 1, VW.i + 1]) if (VW.list[j]?.image_url) new Image().src = VW.list[j].image_url;
+}
+
+function vwGo(d) {
+  const j = VW.i + d;
+  if (j < 0 || j >= VW.list.length) return;
+  VW.i = j;
+  showViewerItem();
+}
+
+function vwToggleZoom(x, y) {
+  const stage = $('#vw-stage');
+  const img = stage.querySelector('img');
+  if (!img) return;
+  if (VW.zoom) {
+    VW.zoom = false;
+    stage.classList.remove('zoomed');
+    img.style.width = '';
+    return;
+  }
+  const rect = img.getBoundingClientRect();
+  const fx = Math.min(1, Math.max(0, (x - rect.left) / rect.width));
+  const fy = Math.min(1, Math.max(0, (y - rect.top) / rect.height));
+  VW.zoom = true;
+  stage.classList.add('zoomed');
+  img.style.width = `${Math.max(img.naturalWidth, stage.clientWidth * 2.2)}px`;
+  stage.scrollLeft = fx * img.offsetWidth - stage.clientWidth / 2;
+  stage.scrollTop = fy * img.offsetHeight - stage.clientHeight / 2;
+}
+
+function wireViewer() {
+  const vw = $('#viewer');
+  const stage = $('#vw-stage');
+  $('#vw-close').addEventListener('click', () => vw.close());
+  $('#vw-prev').addEventListener('click', () => vwGo(-1));
+  $('#vw-next').addEventListener('click', () => vwGo(1));
+  vw.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') vwGo(-1);
+    if (e.key === 'ArrowRight') vwGo(1);
+  });
+
+  let sx = 0, sy = 0, lastTap = 0, tapTimer = 0;
+  stage.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; });
+  stage.addEventListener('pointerup', (e) => {
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!VW.zoom && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) return vwGo(dx < 0 ? 1 : -1);
+    if (!VW.zoom && dy > 90 && dy > Math.abs(dx)) return vw.close();
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      clearTimeout(tapTimer);
+      lastTap = 0;
+      vwToggleZoom(e.clientX, e.clientY);
+    } else {
+      lastTap = now;
+      tapTimer = setTimeout(() => {
+        VW.ui = !VW.ui;
+        vw.classList.toggle('hide-ui', !VW.ui);
+      }, 300);
+    }
+  });
 }
 
 function openAchSheet() {
@@ -765,7 +843,7 @@ function openAchSheet() {
     toast('⚠️ Эхлээд Supabase дээр supabase/achievements.sql-ийг ажиллуулна уу', { kind: 'err', ms: 6000 });
     return;
   }
-  S.ach = { emoji: '🏆', blob: null };
+  S.ach = { emoji: '🏆', images: null };
   $('#ach-title').value = '';
   $('#ach-note').value = '';
   $('#ach-date').value = todayISO();
@@ -801,11 +879,12 @@ function wireAchievements() {
     pickEl.classList.add('busy');
     S.ach.pending = (async () => {
       try {
-        // Демо горимд localStorage багтаах тул жижиг
-        S.ach.blob = await resizeImage(f, S.store.mode === 'demo' ? { max: 1024, quality: 0.72 } : {});
-        setAchPreview(URL.createObjectURL(S.ach.blob));
+        // Нэг стандарт: бүтэн + жижиг хувилбар. Демо горимд localStorage багтаах тул жижиг.
+        S.ach.images = await achievementImages(f, S.store.mode === 'demo'
+          ? { full: { max: 1024, quality: 0.72 }, thumb: { w: 360, h: 450, quality: 0.7 } } : {});
+        setAchPreview(URL.createObjectURL(S.ach.images.full));
       } catch (err) {
-        S.ach.blob = null;
+        S.ach.images = null;
         toast(`⚠️ ${err.message}`, { kind: 'err' });
       } finally {
         pickEl.classList.remove('busy');
@@ -822,11 +901,11 @@ function wireAchievements() {
     btn.textContent = '⏳ Хадгалж байна…';
     try {
       await S.ach.pending; // зураг боловсруулж дуусахыг хүлээнэ
-      if (S.ach.blob) btn.textContent = '⏳ Зураг илгээж байна…';
+      if (S.ach.images) btn.textContent = '⏳ Зураг илгээж байна…';
       const row = await S.store.addAchievement({
         date: $('#ach-date').value || todayISO(), title: title.slice(0, 120),
         emoji: S.ach.emoji, note: $('#ach-note').value.trim().slice(0, 300),
-      }, S.ach.blob);
+      }, S.ach.images);
       S.achievements.unshift(row);
       sheet.close();
       renderAchievements();
@@ -846,10 +925,7 @@ function wireAchievements() {
     }
   });
 
-  const dt = $('#ach-detail');
-  dt.addEventListener('click', (e) => {
-    if (e.target === dt || e.target.closest('[data-close]')) dt.close();
-  });
+  wireViewer();
 }
 
 // ---------- Бусад ----------
@@ -1017,6 +1093,7 @@ function wireGlobal() {
   addEventListener('hashchange', () => setView(location.hash.slice(1) || 'home', false));
   $('#fab').addEventListener('click', goQuick);
   $('#who').addEventListener('click', () => setView('more'));
+  $('#brand').addEventListener('click', (e) => { e.preventDefault(); setView('home'); });
 
   new IntersectionObserver(([e]) => { quickVisible = e.isIntersecting; updateFab(); }, { threshold: 0.15 }).observe($('#quick'));
 
@@ -1045,7 +1122,7 @@ function wireGlobal() {
 
     if (e.target.closest('[data-ach-add]')) return openAchSheet();
     const ao = e.target.closest('[data-ach-open]');
-    if (ao) return openAchDetail(ao.dataset.achOpen);
+    if (ao) return openViewer(ao.dataset.achOpen);
 
     const cm = e.target.closest('[data-coin-mode]');
     if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
@@ -1092,7 +1169,7 @@ async function deleteRow(kind, id) {
   if (!row) return;
   try {
     await S.store.remove(kind, row, 'delete');
-    if (kind === 'achievement' && $('#ach-detail').open) $('#ach-detail').close();
+    if (kind === 'achievement' && $('#viewer').open) $('#viewer').close();
     dropLocal(kind, id);
     const what = kind === 'achievement' ? `${row.emoji} “${row.title}”` : `${fmtSigned(row.amount, kind)} ${kind === 'expense' ? 'зарлага' : 'орлого'}`;
     toast(`🗑️ ${what} устгалаа`, {

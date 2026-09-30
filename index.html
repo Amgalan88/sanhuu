@@ -43,7 +43,7 @@
   <!-- ============ Апп ============ -->
   <div id="app" hidden>
     <header class="topbar">
-      <div class="brand"><span aria-hidden="true">🪙</span> <span class="logo">Бидний <span>санхүү</span></span></div>
+      <a class="brand" id="brand" href="./" aria-label="Нүүр хуудас"><span aria-hidden="true">🪙</span> <span class="logo">Бидний <span>санхүү</span></span></a>
       <button id="who" class="who" type="button" aria-label="Хэрэглэгч"></button>
       <div class="month-nav">
         <button type="button" id="month-prev" class="icon-btn" aria-label="Өмнөх сар">‹</button>
@@ -148,7 +148,20 @@
       </form>
     </dialog>
 
-    <dialog id="ach-detail" class="detail" aria-label="Амжилтын дэлгэрэнгүй"></dialog>
+    <!-- Бүтэн дэлгэцийн харагдац -->
+    <dialog id="viewer" class="viewer" aria-label="Амжилтын зураг">
+      <div class="vw-stage" id="vw-stage"></div>
+      <div class="vw-top">
+        <span class="vw-count" id="vw-count"></span>
+        <div class="vw-actions">
+          <button type="button" class="vw-btn vw-del" id="vw-del" aria-label="Устгах">🗑️</button>
+          <button type="button" class="vw-btn" id="vw-close" aria-label="Хаах" autofocus>✕</button>
+        </div>
+      </div>
+      <button type="button" class="vw-nav prev" id="vw-prev" aria-label="Өмнөх">‹</button>
+      <button type="button" class="vw-nav next" id="vw-next" aria-label="Дараах">›</button>
+      <div class="vw-info" id="vw-info"></div>
+    </dialog>
 
     <nav class="tabbar" aria-label="Үндсэн цэс">
       <button type="button" data-go="home"><span>🏠</span>Нүүр</button>
