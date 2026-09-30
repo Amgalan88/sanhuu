@@ -1,14 +1,8 @@
-// Жишээ (mock) өгөгдөл. Бүх мөр mock=true. id-ууд тогтмол тул дахин ачаалахад давхардахгүй.
-// Апп доторх "Жишээ өгөгдөл нэмэх", демо горим, scripts/gen-seed.mjs гурвуулаа үүнийг ашиглана.
+// Тестийн өгөгдөл: 2026 оны 7–9-р сар (анхны даалгаврын жишээ).
+// Апп-д жишээ өгөгдөл байхгүй — зөвхөн тооцооллыг шалгахад хэрэглэнэ.
+const E = 'Энх-Амгалан', T = 'Цэцгээ';
 
-import { categoryOf, sourceOf, fmtSigned } from './finance.js';
-
-export const MOCK_YEAR = 2026;
-export const ENKH = 'Энх-Амгалан';
-export const TSETSGEE = 'Цэцгээ';
-const E = ENKH, T = TSETSGEE;
-
-// [сар-өдөр, дүн, эх үүсвэр, тайлбар, хэн]
+// [сар-өдөр, дүн, эх үүсвэр/ангилал, тайлбар, хэн]
 const INCOMES = [
   ['07-05', 2_200_000, 'salary', 'Сарын цалин', E],
   ['07-08', 1_800_000, 'salary', 'Сарын цалин', T],
@@ -19,7 +13,6 @@ const INCOMES = [
   ['09-08', 1_800_000, 'salary', 'Сарын цалин', T],
 ];
 
-// [сар-өдөр, дүн, ангилал, тайлбар, хэн]
 const EXPENSES = [
   // 7-р сар — 16 ширхэг, 2,174,500₮
   ['07-01', 165_000, 'housing', 'СӨХ + дулаан', E],
@@ -72,57 +65,8 @@ const EXPENSES = [
   ['09-28', 328_500, 'food', 'Өвлийн нөөц — төмс, хүнсний ногоо', E],
 ];
 
-const hex = (n, len) => n.toString(16).padStart(len, '0');
-const mockId = (kind, i) => `00000000-0000-4000-8000-${kind}${hex(i, 11)}`; // kind: 'a' | 'b' | 'c'
-
-/**
- * @param {(name: string) => string} userIdOf — админы нэрээр user_id буцаана.
- */
-export function buildMock(userIdOf) {
-  const incomes = INCOMES.map(([md, amount, source, note, who], i) => ({
-    id: mockId('a', i + 1),
-    date: `${MOCK_YEAR}-${md}`,
-    amount, source, note,
-    created_by: userIdOf(who),
-    created_at: `${MOCK_YEAR}-${md}T10:${String(10 + i).padStart(2, '0')}:00+08:00`,
-    deleted: false, deleted_by: null, deleted_at: null,
-    mock: true,
-  }));
-
-  const expenses = EXPENSES.map(([md, amount, category, note, who], i) => ({
-    id: mockId('b', i + 1),
-    date: `${MOCK_YEAR}-${md}`,
-    amount, category, note,
-    created_by: userIdOf(who),
-    created_at: `${MOCK_YEAR}-${md}T${String(9 + (i % 11)).padStart(2, '0')}:${String((i * 7) % 60).padStart(2, '0')}:00+08:00`,
-    deleted: false, deleted_by: null, deleted_at: null,
-    mock: true,
-  }));
-
-  const audit = [
-    ...incomes.map((r) => ({ kind: 'income', r })),
-    ...expenses.map((r) => ({ kind: 'expense', r })),
-  ]
-    .sort((a, b) => a.r.created_at.localeCompare(b.r.created_at))
-    .map(({ kind, r }, i) => ({
-      id: mockId('c', i + 1),
-      at: r.created_at,
-      user_id: r.created_by,
-      action: 'add',
-      text: describe(kind, r),
-      ref_id: r.id,
-      mock: true,
-    }));
-
-  return { incomes, expenses, audit };
-}
-
-export function describe(kind, r) {
-  if (kind === 'achievement') return `${r.emoji} Амжилт: ${r.title}`;
-  if (kind === 'income') {
-    const s = sourceOf(r.source);
-    return `${s.emoji} ${fmtSigned(r.amount, 'income')} орлого · ${s.name}${r.note ? ` · ${r.note}` : ''}`;
-  }
-  const c = categoryOf(r.category);
-  return `${c.emoji} ${fmtSigned(r.amount, 'expense')} зарлага · ${c.name}${r.note ? ` · ${r.note}` : ''}`;
-}
+const row = ([md, amount, cat, note, who]) => ({ date: `2026-${md}`, amount, cat, note, created_by: who });
+export const incomes = INCOMES.map(row).map(({ cat, ...r }) => ({ ...r, source: cat }));
+export const expenses = EXPENSES.map(row).map(({ cat, ...r }) => ({ ...r, category: cat }));
+export const ENKH = E;
+export const TSETSGEE = T;

@@ -1,17 +1,18 @@
 // Өгөгдлийн давхарга. Хоёр хэрэгжүүлэлт нэг ижил интерфэйстэй:
-//   SupabaseStore — Postgres + Auth + Realtime (жинхэнэ ашиглалт)
+//   SupabaseStore — Postgres + Auth + Realtime + Storage (жинхэнэ ашиглалт)
 //   LocalStore    — localStorage (Supabase тохируулаагүй үед демо)
 //
 // Интерфэйс: init() → me|null, signIn(), signOut(), loadAll(), add(kind, fields),
 // remove(kind, row, action), restore(kind, row), addAchievement(fields, blob),
-// seedMock(), clearMock(), subscribe(cb)
+// setAvatar(blob|null), subscribe(cb)
 // kind: 'income' | 'expense' | 'achievement'
 
-import { buildMock, describe, ENKH, TSETSGEE } from './mock.js';
+import { describe } from './finance.js';
 import { blobToDataURL } from './image.js';
 
 const TABLE = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
-const BUCKET = 'achievements';
+const BUCKET = 'achievements'; // амжилтын зураг: <user_id>/<id>.jpg, профайл: avatars/<user_id>-<ts>.jpg
+const SIGN_TTL = 60 * 60 * 24;
 const nowISO = () => new Date().toISOString();
 
 export function uuid() {
@@ -22,13 +23,6 @@ export function uuid() {
   b[8] = (b[8] & 0x3f) | 0x80;
   const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
-
-function mockOwner(admins) {
-  const byName = (n) => admins.find((a) => a.name === n);
-  const e = byName(ENKH) || admins[0];
-  const t = byName(TSETSGEE) || admins[1] || admins[0];
-  return (name) => (name === TSETSGEE ? t : e).user_id;
 }
 
 // ============================================================
@@ -49,13 +43,13 @@ export class SupabaseStore {
     this.sb = createClient(this.url, this.key, { auth: { persistSession: true, autoRefreshToken: true } });
     const { data } = await this.sb.auth.getSession();
     if (!data.session) return null;
-    return this.#loadMe(data.session.user);
+    return this.#loadMe(data.session.user.id);
   }
 
   async signIn({ email, password }) {
     const { data, error } = await this.sb.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message === 'Invalid login credentials' ? 'Имэйл эсвэл нууц үг буруу байна' : error.message);
-    return this.#loadMe(data.user);
+    return this.#loadMe(data.user.id);
   }
 
   async signOut() {
@@ -65,11 +59,9 @@ export class SupabaseStore {
     this.me = null;
   }
 
-  async #loadMe(user) {
-    const { data, error } = await this.sb.from('admins').select('*').order('created_at');
-    if (error) throw error;
-    this.admins = data;
-    this.me = data.find((a) => a.user_id === user.id) || null;
+  async #loadMe(userId) {
+    this.userId = userId;
+    await this.#loadAdmins();
     if (!this.me) {
       await this.sb.auth.signOut();
       throw new Error('Энэ хэрэглэгч админ биш байна. admins хүснэгтэд нэмнэ үү.');
@@ -77,10 +69,27 @@ export class SupabaseStore {
     return this.me;
   }
 
+  async #loadAdmins() {
+    const { data, error } = await this.sb.from('admins').select('*').order('created_at');
+    if (error) throw error;
+    await this.#sign(data, 'avatar_path', 'avatar_url');
+    this.admins = data;
+    this.me = data.find((a) => a.user_id === this.userId) || null;
+  }
+
+  // Хувийн bucket-ийн зургуудад түр (24 цаг) холбоос үүсгэнэ
+  async #sign(rows, pathKey, urlKey) {
+    const paths = rows.map((r) => r[pathKey]).filter(Boolean);
+    if (!paths.length) return;
+    const { data } = await this.sb.storage.from(BUCKET).createSignedUrls(paths, SIGN_TTL);
+    const byPath = Object.fromEntries((data || []).filter((u) => u.signedUrl).map((u) => [u.path, u.signedUrl]));
+    for (const r of rows) r[urlKey] = byPath[r[pathKey]] || null;
+  }
+
   async #fetchAll(table) {
     const out = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await this.sb.from(table).select('*').eq('deleted', false)
+      const { data, error } = await this.sb.from(table).select('*').eq('deleted', false).eq('mock', false)
         .order('date').order('created_at').range(from, from + 999);
       if (error) throw error;
       out.push(...data);
@@ -92,14 +101,15 @@ export class SupabaseStore {
     const [incomes, expenses, audit, achievements] = await Promise.all([
       this.#fetchAll('incomes'),
       this.#fetchAll('expenses'),
-      this.sb.from('audit_log').select('*').order('at', { ascending: false }).limit(300)
+      this.sb.from('audit_log').select('*').eq('mock', false).order('at', { ascending: false }).limit(300)
         .then(({ data, error }) => { if (error) throw error; return data; }),
       this.#fetchAchievements(),
+      this.#loadAdmins(), // профайл зураг шинэчлэгдсэн байж болно
     ]);
     return { incomes, expenses, audit, achievements, achievementsMissing: this.achievementsMissing };
   }
 
-  // achievements хүснэгт үүсээгүй (achievements.sql ажиллуулаагүй) бол апп эвдрэхгүй
+  // achievements хүснэгт үүсээгүй бол апп эвдрэхгүй
   async #fetchAchievements() {
     const { data, error } = await this.sb.from('achievements').select('*').eq('deleted', false)
       .order('date', { ascending: false }).order('created_at', { ascending: false });
@@ -109,28 +119,39 @@ export class SupabaseStore {
       return [];
     }
     this.achievementsMissing = false;
-    const paths = data.map((r) => r.image_path).filter(Boolean);
-    if (paths.length) {
-      const { data: urls } = await this.sb.storage.from(BUCKET).createSignedUrls(paths, 60 * 60 * 24);
-      const byPath = Object.fromEntries((urls || []).filter((u) => u.signedUrl).map((u) => [u.path, u.signedUrl]));
-      for (const r of data) r.image_url = byPath[r.image_path] || null;
-    }
+    await this.#sign(data, 'image_path', 'image_url');
     return data;
+  }
+
+  async #upload(path, blob) {
+    const { error } = await this.sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (error) throw new Error(`Зураг upload хийж чадсангүй: ${error.message}`);
   }
 
   async addAchievement(fields, blob) {
     const id = uuid();
-    let image_path = null;
-    if (blob) {
-      image_path = `${this.me.user_id}/${id}.jpg`;
-      const { error } = await this.sb.storage.from(BUCKET).upload(image_path, blob, { contentType: 'image/jpeg', upsert: false });
-      if (error) throw new Error(`Зураг upload хийж чадсангүй: ${error.message}`);
-    }
+    const image_path = blob ? `${this.me.user_id}/${id}.jpg` : null;
+    if (blob) await this.#upload(image_path, blob);
     const { data, error } = await this.sb.from('achievements')
       .insert({ id, ...fields, image_path, created_by: this.me.user_id }).select().single();
     if (error) throw error;
     await this.#audit('add', describe('achievement', data), data.id);
     return { ...data, image_url: blob ? URL.createObjectURL(blob) : null };
+  }
+
+  async setAvatar(blob) {
+    let avatar_path = null;
+    if (blob) {
+      avatar_path = `avatars/${this.me.user_id}-${Date.now()}.jpg`;
+      await this.#upload(avatar_path, blob);
+    }
+    const { error } = await this.sb.from('admins').update({ avatar_path }).eq('user_id', this.me.user_id);
+    if (error) {
+      throw new Error(error.code === '42703' || error.code === 'PGRST204'
+        ? 'Эхлээд Supabase дээр supabase/profile.sql-ийг ажиллуулна уу' : error.message);
+    }
+    this.me.avatar_path = avatar_path;
+    this.me.avatar_url = blob ? URL.createObjectURL(blob) : null;
   }
 
   async #audit(action, text, ref_id = null) {
@@ -139,7 +160,7 @@ export class SupabaseStore {
   }
 
   async add(kind, fields) {
-    const row = { id: uuid(), ...fields, created_by: this.me.user_id, mock: false };
+    const row = { id: uuid(), ...fields, created_by: this.me.user_id };
     const { data, error } = await this.sb.from(TABLE[kind]).insert(row).select().single();
     if (error) throw error;
     await this.#audit('add', describe(kind, data), data.id);
@@ -160,23 +181,6 @@ export class SupabaseStore {
     await this.#audit('restore', describe(kind, row), row.id);
   }
 
-  async seedMock() {
-    const m = buildMock(mockOwner(this.admins));
-    for (const [table, rows] of [['incomes', m.incomes], ['expenses', m.expenses], ['audit_log', m.audit]]) {
-      const { error } = await this.sb.from(table).upsert(rows, { onConflict: 'id', ignoreDuplicates: true });
-      if (error) throw error;
-    }
-    await this.#audit('seed_mock', '🌱 Жишээ өгөгдөл нэмсэн (7–9-р сар)');
-  }
-
-  async clearMock() {
-    for (const table of ['expenses', 'incomes', 'audit_log']) {
-      const { error } = await this.sb.from(table).delete().eq('mock', true);
-      if (error) throw error;
-    }
-    await this.#audit('clear_mock', '🧹 Жишээ өгөгдлийг арилгасан');
-  }
-
   subscribe(cb) {
     const change = () => cb({ type: 'change' });
     if (this.channel) this.sb.removeChannel(this.channel);
@@ -193,29 +197,27 @@ export class SupabaseStore {
 }
 
 // ============================================================
-// Демо: localStorage
+// Демо: localStorage (хоосноос эхэлнэ)
 // ============================================================
-const DB_KEY = 'bidnii-sanhuu-demo-v1';
+const DB_KEY = 'bidnii-sanhuu-demo-v2';
 const ME_KEY = 'bidnii-sanhuu-demo-me';
 
 export class LocalStore {
   mode = 'demo';
-  admins = [
-    { user_id: 'demo-enkh', name: ENKH, emoji: '👨' },
-    { user_id: 'demo-tsetsgee', name: TSETSGEE, emoji: '👩' },
+  base = [
+    { user_id: 'demo-enkh', name: 'Энх-Амгалан', emoji: '👨' },
+    { user_id: 'demo-tsetsgee', name: 'Цэцгээ', emoji: '👩' },
   ];
+  admins = [];
   me = null;
 
   #read() {
-    try {
-      const db = JSON.parse(localStorage.getItem(DB_KEY));
-      if (db?.incomes) {
-        db.achievements ||= [];
-        return db;
-      }
-    } catch { /* эвдэрсэн эсвэл хандах эрхгүй */ }
-    const db = { ...buildMock(mockOwner(this.admins)), achievements: [] };
-    this.#write(db);
+    let db = null;
+    try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch { /* эвдэрсэн эсвэл хандах эрхгүй */ }
+    db = { incomes: [], expenses: [], audit: [], achievements: [], avatars: {}, ...(db || {}) };
+    // Профайл зургийг админ бүрт холбоно
+    this.admins = this.base.map((a) => ({ ...a, avatar_url: db.avatars[a.user_id] || null }));
+    if (this.me) this.me = this.admins.find((a) => a.user_id === this.me.user_id);
     return db;
   }
 
@@ -229,7 +231,7 @@ export class LocalStore {
   }
 
   async init() {
-    this.db = this.#read();
+    this.#read();
     let id = null;
     try { id = localStorage.getItem(ME_KEY); } catch { /* ignore */ }
     this.me = this.admins.find((a) => a.user_id === id) || null;
@@ -237,6 +239,7 @@ export class LocalStore {
   }
 
   async signIn({ userId }) {
+    this.#read();
     this.me = this.admins.find((a) => a.user_id === userId);
     try { localStorage.setItem(ME_KEY, userId); } catch { /* ignore */ }
     return this.me;
@@ -259,33 +262,16 @@ export class LocalStore {
     };
   }
 
-  async addAchievement(fields, blob) {
-    const image_url = blob ? await blobToDataURL(blob) : null;
-    const db = this.#read();
-    const row = {
-      id: uuid(), ...fields, image_path: null, image_url, created_by: this.me.user_id, created_at: nowISO(),
-      deleted: false, deleted_by: null, deleted_at: null,
-    };
-    db.achievements.push(row);
-    this.#audit(db, 'add', describe('achievement', row), row.id);
-    try {
-      this.#write(db);
-    } catch (e) {
-      db.achievements.pop();
-      db.audit.pop();
-      throw e;
-    }
-    return row;
-  }
-
   #audit(db, action, text, ref_id = null) {
-    db.audit.push({ id: uuid(), at: nowISO(), user_id: this.me.user_id, action, text, ref_id, mock: false });
+    db.audit.push({ id: uuid(), at: nowISO(), user_id: this.me.user_id, action, text, ref_id });
   }
 
+  // Бичиж чадаагүй бол (сан дүүрсэн) өөрчлөлтийг буцаана
   #mutate(fn) {
     const db = this.#read();
     const res = fn(db);
     this.#write(db);
+    this.#read();
     return res;
   }
 
@@ -293,11 +279,32 @@ export class LocalStore {
     return this.#mutate((db) => {
       const row = {
         id: uuid(), ...fields, created_by: this.me.user_id, created_at: nowISO(),
-        deleted: false, deleted_by: null, deleted_at: null, mock: false,
+        deleted: false, deleted_by: null, deleted_at: null,
       };
       db[TABLE[kind]].push(row);
       this.#audit(db, 'add', describe(kind, row), row.id);
       return row;
+    });
+  }
+
+  async addAchievement(fields, blob) {
+    const image_url = blob ? await blobToDataURL(blob) : null;
+    return this.#mutate((db) => {
+      const row = {
+        id: uuid(), ...fields, image_path: null, image_url, created_by: this.me.user_id, created_at: nowISO(),
+        deleted: false, deleted_by: null, deleted_at: null,
+      };
+      db.achievements.push(row);
+      this.#audit(db, 'add', describe('achievement', row), row.id);
+      return row;
+    });
+  }
+
+  async setAvatar(blob) {
+    const url = blob ? await blobToDataURL(blob) : null;
+    this.#mutate((db) => {
+      if (url) db.avatars[this.me.user_id] = url;
+      else delete db.avatars[this.me.user_id];
     });
   }
 
@@ -314,24 +321,6 @@ export class LocalStore {
       const r = db[TABLE[kind]].find((x) => x.id === row.id);
       if (r) Object.assign(r, { deleted: false, deleted_by: null, deleted_at: null });
       this.#audit(db, 'restore', describe(kind, row), row.id);
-    });
-  }
-
-  async seedMock() {
-    this.#mutate((db) => {
-      const m = buildMock(mockOwner(this.admins));
-      for (const t of ['incomes', 'expenses', 'audit']) {
-        const ids = new Set(db[t].map((r) => r.id));
-        db[t].push(...m[t].filter((r) => !ids.has(r.id)));
-      }
-      this.#audit(db, 'seed_mock', '🌱 Жишээ өгөгдөл нэмсэн (7–9-р сар)');
-    });
-  }
-
-  async clearMock() {
-    this.#mutate((db) => {
-      for (const t of ['incomes', 'expenses', 'audit']) db[t] = db[t].filter((r) => !r.mock);
-      this.#audit(db, 'clear_mock', '🧹 Жишээ өгөгдлийг арилгасан');
     });
   }
 

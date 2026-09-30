@@ -1,15 +1,14 @@
 import {
   TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
-  fmt, fmtNum, fmtShort, fmtSigned, allocDelta, MINUS, parseAmount,
+  fmt, fmtNum, fmtShort, fmtSigned, allocDelta, MINUS, parseAmount, describe,
 } from './finance.js';
-import { describe } from './mock.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { SupabaseStore, LocalStore } from './store.js';
 import { createCoins3D } from './coins3d.js';
 import { confetti } from './confetti.js';
 import { celebrate, pick } from './celebrate.js';
-import { resizeImage } from './image.js';
+import { resizeImage, resizeSquare } from './image.js';
 
 // ============================================================
 // Туслах
@@ -23,7 +22,7 @@ const signed = (n) => (n > 0 ? `+${fmt(n)}` : fmt(n));
 const ACC = Object.fromEntries(ACCOUNTS.map((a) => [a.key, a]));
 
 const EXPENSE_CHIPS = [5_000, 10_000, 20_000, 50_000, 100_000];
-const INCOME_CHIPS = [[500_000, '+500,000'], [1_000_000, '+1 сая'], [1_800_000, '+1.8 сая'], [2_000_000, '+2 сая']];
+const INCOME_CHIPS = [50_000, 100_000, 500_000, 1_000_000];
 const INCOME_CHEERS = [
   'Гайхалтай! Орлого орлоо 🎉', 'Та хоёр чинь супер баг! 💪', 'Мөрөөдөл рүүгээ нэг алхам ойртлоо ✨',
   'Хөдөлмөрийн үр шим! 🌟', 'Бахархаж байна! 🥰', 'Хуримтлал өсөж байна! 📈',
@@ -38,8 +37,7 @@ const LIST = { income: 'incomes', expense: 'expenses', achievement: 'achievement
 
 const ACTION = {
   add: ['нэмсэн', 'нэмлээ'], delete: ['устгасан', 'устгалаа'], undo: ['буцаасан', 'буцаалаа'],
-  restore: ['сэргээсэн', 'сэргээлээ'], seed_mock: ['жишээ нэмсэн', 'жишээ өгөгдөл нэмлээ'],
-  clear_mock: ['жишээ арилгасан', 'жишээ өгөгдлийг арилгалаа'],
+  restore: ['сэргээсэн', 'сэргээлээ'],
 };
 
 const S = {
@@ -63,6 +61,10 @@ const S = {
 };
 
 const adminOf = (id) => S.store.admins.find((a) => a.user_id === id) || { emoji: '🙂', name: 'Тодорхойгүй' };
+// Профайл зураг байвал зураг, үгүй бол эможи
+const av = (a, cls = '') => (a.avatar_url
+  ? `<img class="av ${cls}" src="${esc(a.avatar_url)}" alt="">`
+  : `<span class="av av-e ${cls}" aria-hidden="true">${a.emoji}</span>`);
 const rowOf = (m) => S.ledger.find((r) => r.month === m) || emptyMonth(m);
 const currentMonth = () => monthKey(todayISO());
 
@@ -93,7 +95,7 @@ function showLogin(error = '') {
     body.innerHTML = `
       <p class="muted" style="margin:0 0 12px">Хэн нэвтэрч байна вэ?</p>
       <div class="demo-pick">
-        ${S.store.admins.map((a) => `<button type="button" data-login="${a.user_id}"><span>${a.emoji}</span>${esc(a.name)}</button>`).join('')}
+        ${S.store.admins.map((a) => `<button type="button" data-login="${a.user_id}">${av(a, 'xl')}${esc(a.name)}</button>`).join('')}
       </div>
       <p class="demo-note">🧪 Демо горим: өгөгдөл зөвхөн энэ хөтөчид хадгалагдана.
       Хоёр утсыг холбохын тулд <b>js/config.js</b>-д Supabase-ээ тохируулна уу.</p>`;
@@ -134,7 +136,7 @@ async function enterApp() {
   $('#boot')?.remove();
   $('#login').hidden = true;
   $('#app').hidden = false;
-  $('#who').innerHTML = `${S.me.emoji} <span>${esc(S.me.name)}</span>`;
+  renderWho();
 
   if (!started) {
     started = true;
@@ -155,8 +157,14 @@ async function enterApp() {
 // ============================================================
 // Өгөгдөл
 // ============================================================
+function renderWho() {
+  $('#who').innerHTML = `${av(S.me, 'sm')} <span>${esc(S.me.name)}</span>`;
+}
+
 async function reload() {
   Object.assign(S, await S.store.loadAll());
+  S.me = S.store.me || S.me; // профайл зураг шинэчлэгдсэн байж болно
+  renderWho();
   recompute();
   renderAll();
 }
@@ -173,7 +181,7 @@ function recompute() {
 }
 
 function onRemote(ev) {
-  if (ev.type === 'audit' && ev.row && !ev.row.mock && ev.row.user_id !== S.me?.user_id) {
+  if (ev.type === 'audit' && ev.row && ev.row.user_id !== S.me?.user_id) {
     const a = adminOf(ev.row.user_id);
     const verb = ACTION[ev.row.action]?.[1] || '';
     toast(`${a.emoji} ${a.name}: ${ev.row.text} ${verb}`, { kind: 'info', ms: 4500 });
@@ -251,9 +259,9 @@ function renderQuickControls() {
   const isExp = S.q.kind === 'expense';
   $$('.kind button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === S.q.kind)));
   $('#chips').innerHTML = isExp
-    ? EXPENSE_CHIPS.map((n) => `<button type="button" class="chip" data-add="${n}">+${fmtNum(n)}</button>`).join('')
+    ? EXPENSE_CHIPS.map((n) => `<button type="button" class="chip neg" data-add="${n}">${MINUS}${fmtNum(n)}</button>`).join('')
       + '<button type="button" class="chip reset" data-add="reset" aria-label="Тэглэх">↺</button>'
-    : INCOME_CHIPS.map(([n, l]) => `<button type="button" class="chip" data-add="${n}">${l}</button>`).join('')
+    : INCOME_CHIPS.map((n) => `<button type="button" class="chip pos" data-add="${n}">+${fmtNum(n)}</button>`).join('')
       + '<button type="button" class="chip reset" data-add="reset" aria-label="Тэглэх">↺</button>';
   const list = isExp ? EXPENSE_CATEGORIES : INCOME_SOURCES;
   $('#cats').innerHTML = list.map((c) => `
@@ -415,7 +423,6 @@ function dropLocal(kind, id) {
 // ============================================================
 function renderAll() {
   renderMonthNav();
-  renderMockBanner();
   renderSummary();
   renderOverview();
   renderCoins();
@@ -444,18 +451,6 @@ function renderMonthNav() {
   const i = opts.indexOf(S.month);
   $('#month-prev').disabled = i >= opts.length - 1;
   $('#month-next').disabled = i <= 0;
-}
-
-function hasMock() {
-  return S.incomes.some((r) => r.mock) || S.expenses.some((r) => r.mock);
-}
-
-function renderMockBanner() {
-  $('#mock-banner').innerHTML = hasMock() ? `
-    <div class="banner">
-      <span>🧪 <b>Жишээ</b> өгөгдөл харагдаж байна</span>
-      <button type="button" class="btn small" data-clear-mock>🧹 Арилгах</button>
-    </div>` : '';
 }
 
 // Сарын самбар: орлого ба 4 саяын зорилт. Хуваарилалтын дэлгэрэнгүй нь "дэлгэх" дотор.
@@ -531,8 +526,8 @@ function filteredExpenses() {
 }
 
 function filterBar() {
-  const opts = [['all', 'Бүгд'], ...S.store.admins.map((a) => [a.user_id, `${a.emoji} ${a.name}`])];
-  return `<div class="filter" role="group" aria-label="Админаар шүүх">${opts.map(([v, l]) => `<button type="button" data-filter="${v}" aria-pressed="${S.filter === v}">${esc(l)}</button>`).join('')}</div>`;
+  const opts = [['all', 'Бүгд'], ...S.store.admins.map((a) => [a.user_id, `${av(a, 'xs')} ${esc(a.name)}`])];
+  return `<div class="filter" role="group" aria-label="Админаар шүүх">${opts.map(([v, l]) => `<button type="button" data-filter="${v}" aria-pressed="${S.filter === v}">${l}</button>`).join('')}</div>`;
 }
 
 function renderBreakdown() {
@@ -564,8 +559,8 @@ function txRow(kind, r) {
     <li class="tx">
       <span class="tx-emoji">${c.emoji}</span>
       <div class="tx-main">
-        <div class="tx-title">${esc(r.note || c.name)} ${r.mock ? '<span class="tag">жишээ</span>' : ''}</div>
-        <div class="tx-sub">${shortDate(r.date)} · ${a.emoji} ${esc(a.name)} бүртгэсэн</div>
+        <div class="tx-title">${esc(r.note || c.name)}</div>
+        <div class="tx-sub">${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)} бүртгэсэн</div>
       </div>
       <div class="tx-right">
         <b class="tx-amt num ${kind === 'income' ? 'pos' : ''}">${fmtSigned(r.amount, kind)}</b>
@@ -645,10 +640,10 @@ function renderAudit() {
       const a = adminOf(l.user_id);
       return `
         <li class="log">
-          <span class="log-who">${a.emoji}</span>
+          <span class="log-who">${av(a, 'md')}</span>
           <div style="min-width:0">
             <div class="log-head"><span><b>${esc(a.name)}</b><span class="act act-${l.action}">${ACTION[l.action]?.[0] || esc(l.action)}</span></span><time datetime="${esc(l.at)}">${fmtTime(l.at)}</time></div>
-            <div class="log-text">${esc(l.text)} ${l.mock ? '<span class="tag">жишээ</span>' : ''}</div>
+            <div class="log-text">${esc(l.text)}</div>
           </div>
         </li>`;
     }).join('')}</ul>
@@ -699,7 +694,7 @@ function achCard(r) {
       <figcaption>
         <b>${esc(r.title)}</b>
         ${r.note ? `<p>${esc(r.note)}</p>` : ''}
-        <small>${yr}${shortDate(r.date)} · ${a.emoji} ${esc(a.name)}</small>
+        <small>${yr}${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)}</small>
       </figcaption>
       <button type="button" class="del ach-del" data-del="achievement:${r.id}" aria-label="Устгах">🗑️</button>
     </figure>`;
@@ -824,25 +819,26 @@ function openLightbox(id) {
 // ---------- Бусад ----------
 function renderMore() {
   const demo = S.store.mode === 'demo';
+  const partner = S.store.admins.find((a) => a.user_id !== S.me.user_id);
   $('#profile').innerHTML = `
-    <h2>👤 Хэрэглэгч</h2>
+    <h2>👤 Профайл</h2>
     <div class="profile">
-      <span class="avatar">${S.me.emoji}</span>
-      <div><b>${esc(S.me.name)}</b><div class="muted" style="font-size:13px">${demo ? '🧪 Демо горим — өгөгдөл энэ хөтөчид' : '☁️ Supabase — хоёр утсанд шууд шинэчлэгдэнэ'}</div></div>
+      <label class="avatar-pick" title="Зураг солих">
+        <input type="file" id="avatar-file" accept="image/*" hidden>
+        ${av(S.me, 'xl')}
+        <span class="avatar-cam" aria-hidden="true">📷</span>
+      </label>
+      <div style="min-width:0">
+        <b>${esc(S.me.name)}</b>
+        <div class="muted" style="font-size:13px">${demo ? '🧪 Демо горим — өгөгдөл энэ хөтөчид' : '☁️ Хоёр утсанд шууд шинэчлэгдэнэ'}</div>
+        ${partner ? `<div class="partner">${av(partner, 'xs')} ${esc(partner.name)}-тай хамт 💑</div>` : ''}
+      </div>
+    </div>
+    <div class="btn-row">
+      <label class="btn" for="avatar-file" style="flex:1">📷 Профайл зураг солих</label>
+      ${S.me.avatar_url ? '<button type="button" class="btn" id="avatar-remove">Арилгах</button>' : ''}
     </div>
     <div class="btn-row"><button type="button" class="btn block" id="logout">🚪 ${demo ? 'Хэрэглэгч солих' : 'Гарах'}</button></div>`;
-
-  const mockCount = S.incomes.filter((r) => r.mock).length + S.expenses.filter((r) => r.mock).length;
-  $('#mock-card').innerHTML = `
-    <h2>🧪 Жишээ өгөгдөл</h2>
-    <p class="note">${mockCount
-      ? `Одоо <b>${mockCount}</b> жишээ бүртгэл (7–9-р сар) байна. Жинхэнэ бүртгэлд хүрэхгүйгээр нэг дор арилгана.`
-      : 'Жишээ өгөгдөл алга. Аппыг туршиж үзэхийн тулд 7–9-р сарын жишээ бүртгэл нэмж болно.'}</p>
-    <div class="btn-row">
-      ${mockCount
-        ? '<button type="button" class="btn block" data-clear-mock>🧹 Жишээ өгөгдлийг арилгах</button>'
-        : '<button type="button" class="btn block" id="seed-mock">🌱 Жишээ өгөгдөл нэмэх</button>'}
-    </div>`;
 
   $('#rules').innerHTML = `
     <h2>📐 Хуваарилалтын дүрэм</h2>
@@ -956,7 +952,7 @@ function toast(msg, { undo, kind = '', ms } = {}) {
 // ============================================================
 // Навигаци ба үйлдлүүд
 // ============================================================
-const VIEWS = ['home', 'tx', 'history', 'more'];
+const VIEWS = ['home', 'tx', 'ach', 'history', 'more'];
 
 function setView(v, scroll = true) {
   if (!VIEWS.includes(v)) v = 'home';
@@ -1010,8 +1006,6 @@ function wireGlobal() {
     const d = e.target.closest('[data-del]');
     if (d) return armThen(d, 'Устгах уу?', () => deleteRow(...d.dataset.del.split(':')));
 
-    const c = e.target.closest('[data-clear-mock]');
-    if (c) return armThen(c, '⚠️ Тийм, бүгдийг арилгах', clearMock);
 
     if (e.target.closest('[data-ach-add]')) return openAchSheet();
     const av = e.target.closest('[data-ach-view]');
@@ -1020,8 +1014,9 @@ function wireGlobal() {
     const cm = e.target.closest('[data-coin-mode]');
     if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
 
-    if (e.target.closest('#seed-mock')) return seedMock();
     if (e.target.closest('#audit-more')) { S.auditLimit += 50; renderAudit(); return; }
+    const rm = e.target.closest('#avatar-remove');
+    if (rm) return armThen(rm, 'Арилгах уу?', () => changeAvatar(null));
     if (e.target.closest('#logout')) {
       await S.store.signOut();
       S.me = null;
@@ -1030,6 +1025,16 @@ function wireGlobal() {
   });
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me) scheduleReload(100); });
+
+  // Профайл зураг: renderMore дахин зурдаг тул document дээр сонсоно
+  document.addEventListener('change', async (e) => {
+    if (e.target.id !== 'avatar-file' || !e.target.files[0]) return;
+    try {
+      await changeAvatar(await resizeSquare(e.target.files[0]));
+    } catch (err) {
+      toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
+    }
+  });
 }
 
 // 2 шаттай баталгаажуулалт: эхний товшилт "зэвсэглэнэ", 4 секундэд дахин товшвол гүйцэтгэнэ.
@@ -1073,23 +1078,16 @@ async function deleteRow(kind, id) {
   }
 }
 
-async function clearMock() {
+async function changeAvatar(blob) {
   try {
-    await S.store.clearMock();
-    await reload();
-    toast('🧹 Жишээ өгөгдлийг арилгалаа. Одоо жинхэнэ бүртгэлээ эхлүүлээрэй!');
+    toast(blob ? '⏳ Профайл зураг илгээж байна…' : '⏳ Арилгаж байна…', { ms: 1500 });
+    await S.store.setAvatar(blob);
+    S.me = S.store.me;
+    renderAll();
+    renderWho();
+    toast(blob ? '✨ Профайл зураг шинэчлэгдлээ!' : 'Профайл зургийг арилгалаа');
   } catch (err) {
-    toast(`⚠️ ${err.message}`, { kind: 'err' });
-  }
-}
-
-async function seedMock() {
-  try {
-    await S.store.seedMock();
-    await reload();
-    toast('🌱 Жишээ өгөгдөл нэмлээ');
-  } catch (err) {
-    toast(`⚠️ ${err.message}`, { kind: 'err' });
+    toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
   }
 }
 

@@ -138,7 +138,7 @@ h3 { font-size: 13px; color: var(--muted); font-weight: 700; margin: 16px 0 8px;
   display: grid; gap: 4px; place-items: center; padding: 18px 8px; border-radius: 20px;
   background: var(--surface-2); border: 2px solid var(--border); font-weight: 700;
 }
-.demo-pick button span { font-size: 40px; line-height: 1; }
+.demo-pick button .av { margin-bottom: 4px; }
 .demo-pick button:active { border-color: var(--gold-fill); transform: scale(.98); }
 .demo-note { font-size: 13px; color: var(--muted); margin: 16px 0 0; }
 
@@ -215,10 +215,6 @@ main {
 .pill.warn { background: var(--warn-soft); color: var(--warn); }
 .pill.bad { background: var(--bad-soft); color: var(--bad); }
 .pill.gold { background: var(--gold-soft); color: var(--gold); }
-.tag {
-  display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
-  background: var(--surface-2); color: var(--muted); border: 1px dashed var(--border); vertical-align: 1px;
-}
 
 /* ---------- Хурдан бүртгэл ---------- */
 .quick { padding: 14px; border: 1.5px solid color-mix(in srgb, var(--gold-fill) 45%, var(--border)); scroll-margin-top: 12px; }
@@ -252,6 +248,8 @@ main {
 }
 .chip:active { transform: scale(.96); border-color: var(--gold-fill); }
 .chip.reset { flex: 0 0 auto; min-width: 48px; font-size: 18px; }
+.chip.neg { color: var(--bad); }
+.chip.pos { color: var(--ok); }
 
 .cats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .cat {
@@ -402,15 +400,15 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bott
 
 .log { display: grid; grid-template-columns: 36px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .log:last-child { border-bottom: 0; }
-.log-who { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-2); font-size: 18px; }
+.log-who { width: 36px; height: 36px; display: grid; place-items: center; }
 .log-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; }
 .log-head time { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .log-text { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .act { white-space: nowrap; font-weight: 700; font-size: 12px; padding: 1px 7px; border-radius: 99px; margin-left: 4px; background: var(--surface-2); }
 .act-add { color: var(--ok); background: var(--ok-soft); }
-.act-delete, .act-clear_mock { color: var(--bad); background: var(--bad-soft); }
+.act-delete { color: var(--bad); background: var(--bad-soft); }
 .act-undo { color: var(--warn); background: var(--warn-soft); }
-.act-restore, .act-seed_mock { color: var(--gold); background: var(--gold-soft); }
+.act-restore { color: var(--gold); background: var(--gold-soft); }
 
 /* ---------- Бусад ---------- */
 .banner {
@@ -426,8 +424,23 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bott
 .btn.danger, .btn.armed { background: var(--bad); color: #fff; border-color: transparent; }
 .btn.block { width: 100%; }
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.profile { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-.avatar { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 28px; background: var(--gold-soft); }
+.profile { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+.partner { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.avatar-pick { position: relative; cursor: pointer; flex: 0 0 auto; }
+.avatar-cam {
+  position: absolute; right: -2px; bottom: -2px; width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 50%; font-size: 13px; background: var(--gold-fill); border: 2px solid var(--surface);
+}
+label.btn { cursor: pointer; }
+
+/* Профайл зураг / эможи */
+.av { display: inline-grid; place-items: center; border-radius: 50%; object-fit: cover; vertical-align: middle; flex: 0 0 auto; background: var(--gold-soft); }
+.av-e { line-height: 1; }
+.av.xs { width: 18px; height: 18px; font-size: 12px; vertical-align: -4px; }
+.av.sm { width: 26px; height: 26px; font-size: 16px; }
+.av.md { width: 36px; height: 36px; font-size: 18px; }
+.av.xl { width: 72px; height: 72px; font-size: 38px; box-shadow: 0 0 0 3px var(--gold-fill); }
+.who .av { box-shadow: 0 0 0 2px rgba(255, 255, 255, .5); }
 .rules { width: 100%; min-width: 0; margin-top: 8px; }
 .rules td { font-family: 'JetBrains Mono', monospace; }
 .rules td:first-child { font-family: 'Manrope', sans-serif; position: static; }
@@ -437,8 +450,8 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bott
 /* ---------- Доод цэс, FAB ---------- */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--border);
@@ -617,12 +630,11 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bott
 @media (min-width: 1000px) {
   .view[data-view="home"].active { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: start; }
   .coins-card { grid-column: 1 / -1; }
-  .tabbar { left: 50%; right: auto; transform: translateX(-50%); bottom: 14px; width: 460px; border-radius: 22px; border: 1px solid var(--border); padding: 6px; box-shadow: var(--shadow); }
+  .tabbar { left: 50%; right: auto; transform: translateX(-50%); bottom: 14px; width: 560px; border-radius: 22px; border: 1px solid var(--border); padding: 6px; box-shadow: var(--shadow); }
   .fab { display: none; }
   .toasts { bottom: 96px; }
 }
 .span-all { grid-column: 1 / -1; }
-#mock-banner:empty { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

@@ -193,3 +193,14 @@ export function parseAmount(str) {
   const digits = String(str ?? '').replace(/\D/g, '');
   return digits ? Math.min(Number(digits), 999_999_999) : 0;
 }
+
+/** Үйлдлийн бүртгэлийн текст: "🛒 −45,000₮ зарлага · Хүнс · Номин" */
+export function describe(kind, r) {
+  if (kind === 'achievement') return `${r.emoji} Амжилт: ${r.title}`;
+  if (kind === 'income') {
+    const s = sourceOf(r.source);
+    return `${s.emoji} ${fmtSigned(r.amount, 'income')} орлого · ${s.name}${r.note ? ` · ${r.note}` : ''}`;
+  }
+  const c = categoryOf(r.category);
+  return `${c.emoji} ${fmtSigned(r.amount, 'expense')} зарлага · ${c.name}${r.note ? ` · ${r.note}` : ''}`;
+}

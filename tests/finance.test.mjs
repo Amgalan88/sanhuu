@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { allocate, allocDelta, buildLedger, fmt, fmtShort, fmtSigned, parseAmount, monthRange, spendLevel } from '../js/finance.js';
-import { buildMock, ENKH, TSETSGEE } from '../js/mock.js';
+import * as fx from './fixture.mjs';
+import { describe as describeRow } from '../js/finance.js';
 
 const pick = (a) => ({ household: a.household, savings: a.savings, travel: a.travel, goal: a.goal, risk: a.risk });
 const sum = (a) => a.household + a.savings + a.travel + a.goal + a.risk;
@@ -45,8 +46,8 @@ test('0 ба сөрөг орлого', () => {
   assert.equal(sum(allocate(-5)), 0);
 });
 
-test('жишээ өгөгдөл: тоо ширхэг ба дүн', () => {
-  const m = buildMock((n) => n);
+test('тестийн өгөгдөл: тоо ширхэг ба дүн', () => {
+  const m = fx;
   const byMonth = (rows, mm) => rows.filter((r) => r.date.slice(5, 7) === mm);
   const total = (rows) => rows.reduce((s, r) => s + r.amount, 0);
 
@@ -62,15 +63,17 @@ test('жишээ өгөгдөл: тоо ширхэг ба дүн', () => {
   assert.equal(total(byMonth(m.incomes, '09')), 3_800_000);
 
   const who = new Set(m.expenses.map((r) => r.created_by));
-  assert.deepEqual([...who].sort(), [ENKH, TSETSGEE].sort());
-  assert.ok([...m.incomes, ...m.expenses, ...m.audit].every((r) => r.mock === true));
-  assert.equal(m.audit.length, m.incomes.length + m.expenses.length);
-  const all = [...m.incomes, ...m.expenses, ...m.audit];
-  assert.equal(new Set(all.map((r) => r.id)).size, all.length);
+  assert.deepEqual([...who].sort(), [fx.ENKH, fx.TSETSGEE].sort());
 });
 
-test('өрхийн дансны үлдэгдэл дараа сард шилжинэ (жишээ өгөгдөл)', () => {
-  const m = buildMock((n) => n);
+test('үйлдлийн бүртгэлийн текст +/− тэмдэгтэй', () => {
+  assert.equal(describeRow('expense', { amount: 45_000, category: 'food', note: 'Номин' }), '🛒 −45,000₮ зарлага · Хүнс · Номин');
+  assert.equal(describeRow('income', { amount: 2_000_000, source: 'salary', note: '' }), '💼 +2,000,000₮ орлого · Цалин');
+  assert.equal(describeRow('achievement', { emoji: '🏆', title: 'Хадгаламж 1 сая' }), '🏆 Амжилт: Хадгаламж 1 сая');
+});
+
+test('өрхийн дансны үлдэгдэл дараа сард шилжинэ (7–9-р сар)', () => {
+  const m = fx;
   const L = buildLedger(m.incomes, m.expenses, { toMonth: '2026-10' });
   const at = (k) => L.find((r) => r.month === k);
 

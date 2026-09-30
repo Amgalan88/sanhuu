@@ -39,3 +39,25 @@ export const blobToDataURL = (blob) => new Promise((resolve, reject) => {
   r.onerror = () => reject(r.error);
   r.readAsDataURL(blob);
 });
+
+/** Профайл зураг: голоос нь дөрвөлжин тайрч size×size JPEG болгоно. */
+export async function resizeSquare(file, size = 320, quality = 0.85) {
+  if (!file || !file.type.startsWith('image/')) throw new Error('Зөвхөн зураг сонгоно уу');
+  let src;
+  try {
+    src = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    src = await loadImage(file);
+  }
+  const side = Math.min(src.width, src.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, size, size);
+  ctx.drawImage(src, (src.width - side) / 2, (src.height - side) / 2, side, side, 0, 0, size, size);
+  src.close?.();
+  return new Promise((resolve, reject) => canvas.toBlob(
+    (b) => (b ? resolve(b) : reject(new Error('Зургийг боловсруулж чадсангүй'))), 'image/jpeg', quality,
+  ));
+}
