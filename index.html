@@ -12,6 +12,22 @@
   <title>Бидний санхүү</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+  <!-- Холбоос хуваалцахад (Messenger, Facebook, Telegram…) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Бидний санхүү">
+  <meta property="og:title" content="Бидний санхүү 💑">
+  <meta property="og:description" content="Гэр бүлийн нийтийн данс — орлогоо 5 дансанд хуваарилж, зарлагаа хамтдаа хөтөлье.">
+  <meta property="og:image" content="https://raw.githubusercontent.com/Amgalan88/sanhuu/main/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Бидний санхүү — зоосон лого">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Бидний санхүү 💑">
+  <meta name="twitter:description" content="Гэр бүлийн нийтийн данс — орлогоо 5 дансанд хуваарилж, зарлагаа хамтдаа хөтөлье.">
+  <meta name="twitter:image" content="https://raw.githubusercontent.com/Amgalan88/sanhuu/main/og.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Manrope:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap">
@@ -25,14 +41,14 @@
 </head>
 <body>
   <div id="boot" class="boot" aria-live="polite">
-    <div class="boot-coin">🪙</div>
+    <img class="boot-coin" src="icons/coin.svg" alt="">
     <div class="logo">Бидний <span>санхүү</span></div>
   </div>
 
   <!-- ============ Нэвтрэх ============ -->
   <section id="login" class="login" hidden>
     <div class="login-card">
-      <div class="login-coin">🪙</div>
+      <img class="login-coin" src="icons/coin.svg" alt="">
       <h1 class="logo big">Бидний <span>санхүү</span></h1>
       <p class="login-sub">Гэр бүлийн нийтийн данс</p>
       <div id="login-body"></div>
@@ -43,7 +59,7 @@
   <!-- ============ Апп ============ -->
   <div id="app" hidden>
     <header class="topbar">
-      <a class="brand" id="brand" href="./" aria-label="Нүүр хуудас"><span aria-hidden="true">🪙</span> <span class="logo">Бидний <span>санхүү</span></span></a>
+      <a class="brand" id="brand" href="./" aria-label="Нүүр хуудас"><img class="brand-coin" src="icons/coin.svg" alt=""> <span class="logo">Бидний <span>санхүү</span></span></a>
       <button id="who" class="who" type="button" aria-label="Хэрэглэгч"></button>
       <div class="month-nav">
         <button type="button" id="month-prev" class="icon-btn" aria-label="Өмнөх сар">‹</button>
@@ -112,6 +128,7 @@
       <!-- Бусад -->
       <section class="view" data-view="more">
         <section class="card" id="profile"></section>
+        <section class="card" id="notif-card"></section>
         <section class="card" id="theme-card">
           <h2>🎨 Харагдах байдал</h2>
           <div class="theme-pick" id="theme-seg" role="radiogroup" aria-label="Сэдэв">

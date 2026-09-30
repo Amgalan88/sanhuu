@@ -1,7 +1,7 @@
 // Зургийг upload хийхээс өмнө утсан дээрээ нэг стандартад оруулна:
 //   • бүтэн зураг — JPEG, урт тал ≤ 1600px, чанар 82%   (бүтэн дэлгэцээр үзэхэд)
 //   • жижиг зураг — JPEG, 480×600 (4:5), голоос тайрсан (галерейн картад)
-//   • профайл     — JPEG, 320×320 (1:1)
+//   • профайл     — JPEG, 320×320 (1:1), cropper.js-ээр тайрна
 // EXIF эргэлтийг зөв тооцно; canvas-аар дахин кодлох тул GPS зэрэг мета өгөгдөл арилна.
 
 export const STANDARD = {
@@ -66,16 +66,6 @@ export async function achievementImages(file, opts = {}) {
       full: await toJpeg(draw(src, [0, 0, src.width, src.height], src.width * k, src.height * k), full.quality),
       thumb: await toJpeg(draw(src, coverCrop(src, thumb.w, thumb.h), thumb.w, thumb.h), thumb.quality),
     };
-  } finally {
-    src.close?.();
-  }
-}
-
-/** Профайл зураг: голоос нь дөрвөлжин тайрсан JPEG. */
-export async function resizeSquare(file, size = STANDARD.avatar.size, quality = STANDARD.avatar.quality) {
-  const src = await decode(file);
-  try {
-    return await toJpeg(draw(src, coverCrop(src, 1, 1), size, size), quality);
   } finally {
     src.close?.();
   }

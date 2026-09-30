@@ -48,6 +48,7 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    Дараа нь дарааллаар нь:
    - [supabase/achievements.sql](supabase/achievements.sql) — “🏆 Бидний амжилтууд” хүснэгт ба зургийн хувийн сан (Storage bucket `achievements`)
    - [supabase/profile.sql](supabase/profile.sql) — профайл зураг (хүн бүр зөвхөн өөрийнхөө зургийг солино)
+   - [supabase/push.sql](supabase/push.sql) — push мэдэгдлийн төхөөрөмжүүд
 3. **Authentication → Sign In / Providers → Email**:
    - **Allow new users to sign up**-ийг **унтраана** (гадны хүн бүртгүүлэхгүй).
    - Хүсвэл **Confirm email**-ийг унтраана.
@@ -101,6 +102,30 @@ Framework: **Other**, Build Command хоосон, Output Directory `.` → **Dep
 Байршуулсны дараа Supabase → **Authentication → URL Configuration → Site URL**-д
 сайтын хаягаа (жишээ нь `https://bidnii-sanhuu.vercel.app`) бичнэ.
 
+## 🔔 Push мэдэгдэл
+
+Нэг нь орлого, зарлага, амжилт нэмэх/устгахад нөгөө хүний утсанд мэдэгдэл очно.
+
+1. **SQL:** [supabase/push.sql](supabase/push.sql)-ийг SQL Editor-т ажиллуулна.
+2. **Edge Function:** Supabase → **Edge Functions → Deploy a new function → Via Editor**
+   → нэр нь яг `notify` → [supabase/functions/notify/index.ts](supabase/functions/notify/index.ts)-ийн агуулгыг бүхэлд нь хуулж тавиад **Deploy**.
+3. **Secrets:** Edge Functions → **Secrets** → дараах 3-ыг нэмнэ (утгыг `.secrets/vapid.txt`-ээс авна;
+   энэ файл GitHub-д ордоггүй):
+   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
+4. **Утас бүр дээр:** апп-ыг нээгээд **⚙️ Бусад → 🔔 Мэдэгдэл асаах → 📨 Туршиж үзэх**.
+   - **iPhone:** зөвхөн Safari → Хуваалцах (⬆️) → **“Нүүр дэлгэцэнд нэмэх”** хийсэн апп-аас ажиллана (iOS 16.4+).
+   - **Android:** Chrome дээр шууд ажиллана.
+
+CLI-аар хийх бол: `npx supabase login` →
+`npx supabase functions deploy notify --project-ref evtawdwjlwniwjjimkfh` →
+`npx supabase secrets set --env-file .secrets/vapid.txt --project-ref evtawdwjlwniwjjimkfh`.
+
+## 📲 Апп болгон суулгах, холбоос хуваалцах
+
+- Дүрс нь зоосон лого ([icons/](icons/)): iPhone-д `apple-touch-icon.png`, Android-д 192/512 ба maskable.
+- Холбоос илгээхэд [og.png](og.png) зураг, гарчиг, тайлбар урьдчилан харагдана.
+- Дүрсийг дахин үүсгэх: `CHROME=<chrome зам> node scripts/make-icons.mjs` (puppeteer-core хэрэгтэй).
+
 ## Тест
 
 ```bash
@@ -128,6 +153,12 @@ js/image.js             зураг жижгэрүүлэх (upload-аас өмн�
 supabase/schema.sql     хүснэгт, RLS, Realtime
 supabase/achievements.sql  амжилтын хүснэгт + зургийн сан
 supabase/profile.sql    профайл зураг
+supabase/push.sql       push мэдэгдлийн төхөөрөмжүүд
+supabase/functions/notify/  push илгээх Edge Function
+sw.js                   service worker (push)
+js/push.js              мэдэгдэл асаах/унтраах
+js/cropper.js           профайл зураг тайрах
+icons/, og.png          апп-ын дүрс, холбоосны зураг
 tests/finance.test.mjs  unit test
 tests/fixture.mjs       тестийн өгөгдөл
 ```

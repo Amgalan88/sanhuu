@@ -4,7 +4,7 @@
 //
 // Интерфэйс: init() → me|null, signIn(), signOut(), loadAll(), add(kind, fields),
 // remove(kind, row, action), restore(kind, row), addAchievement(fields, images{full,thumb}),
-// setAvatar(blob|null), subscribe(cb)
+// setAvatar(blob|null), savePushSubscription(), deletePushSubscription(), testPush(), subscribe(cb)
 // kind: 'income' | 'expense' | 'achievement'
 
 import { describe } from './finance.js';
@@ -15,6 +15,7 @@ const BUCKET = 'achievements'; // амжилтын зураг: <user_id>/<id>.jp
 const SIGN_TTL = 60 * 60 * 24;
 const thumbOf = (path) => path.replace(/\.jpg$/, '_t.jpg'); // жижиг хувилбар: <id>_t.jpg
 const nowISO = () => new Date().toISOString();
+const PUSH_VERB = { add: 'нэмлээ', delete: 'устгалаа', undo: 'буцаалаа', restore: 'сэргээлээ' };
 
 export function uuid() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -164,6 +165,33 @@ export class SupabaseStore {
   async #audit(action, text, ref_id = null) {
     const { error } = await this.sb.from('audit_log').insert({ id: uuid(), user_id: this.me.user_id, action, text, ref_id });
     if (error) console.warn('audit_log', error);
+    // Нөгөө хүнд push мэдэгдэл (функц байрлуулаагүй бол чимээгүй алгасна)
+    this.sb.functions.invoke('notify', { body: { body: `${text} ${PUSH_VERB[action] || ''}`.trim(), tag: ref_id || undefined } })
+      .catch(() => {});
+  }
+
+  async savePushSubscription(sub) {
+    const { error } = await this.sb.from('push_subscriptions').upsert({
+      endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth,
+      user_id: this.me.user_id, user_agent: navigator.userAgent.slice(0, 200),
+    }, { onConflict: 'endpoint' });
+    if (error) {
+      throw new Error(error.code === 'PGRST205' || error.code === '42P01'
+        ? 'Эхлээд Supabase дээр supabase/push.sql-ийг ажиллуулна уу' : error.message);
+    }
+  }
+
+  async deletePushSubscription(endpoint) {
+    await this.sb.from('push_subscriptions').delete().eq('endpoint', endpoint);
+  }
+
+  async testPush() {
+    const { data, error } = await this.sb.functions.invoke('notify', {
+      body: { test: true, title: '🔔 Бидний санхүү', body: 'Мэдэгдэл ажиллаж байна! 🎉' },
+    });
+    if (error) throw new Error('notify функц олдсонгүй — README-ийн “Push мэдэгдэл” алхмыг хийнэ үү');
+    if (!data?.sent) throw new Error('Энэ төхөөрөмж бүртгэгдээгүй байна');
+    return data;
   }
 
   async add(kind, fields) {
@@ -331,6 +359,10 @@ export class LocalStore {
       this.#audit(db, 'restore', describe(kind, row), row.id);
     });
   }
+
+  async savePushSubscription() { throw new Error('Push мэдэгдэл зөвхөн Supabase горимд ажиллана'); }
+  async deletePushSubscription() {}
+  async testPush() { throw new Error('Push мэдэгдэл зөвхөн Supabase горимд ажиллана'); }
 
   subscribe(cb) {
     // Нэг хөтөчийн өөр цонхноос хийсэн өөрчлөлтийг шууд харуулна

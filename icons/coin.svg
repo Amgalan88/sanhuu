@@ -7,8 +7,8 @@
   </linearGradient>
   <linearGradient id="face" x1=".2" y1="0" x2=".8" y2="1">
     <stop offset="0" stop-color="#ffd86a"/><stop offset="1" stop-color="#e59c18"/>
-  </linearGradient></defs><rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <g transform="translate(256 250) scale(0.9772727272727273)">
+  </linearGradient></defs>
+  <g transform="translate(256 250) scale(1.3409090909090908)">
     <circle cx="0" cy="12" r="176" fill="#000" opacity=".22"/>
     <circle r="176" fill="url(#rim)"/>
     <circle r="148" fill="url(#face)" stroke="#b77708" stroke-width="6"/>

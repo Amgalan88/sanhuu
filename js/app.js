@@ -8,7 +8,9 @@ import { SupabaseStore, LocalStore } from './store.js';
 import { createCoins3D } from './coins3d.js';
 import { confetti } from './confetti.js';
 import { celebrate, pick } from './celebrate.js';
-import { achievementImages, resizeSquare } from './image.js';
+import { achievementImages } from './image.js';
+import { cropAvatar } from './cropper.js';
+import { registerSW, pushState, enablePush, disablePush } from './push.js';
 
 // ============================================================
 // Туслах
@@ -77,6 +79,7 @@ boot();
 
 async function boot() {
   applyTheme(getTheme());
+  registerSW(); // push мэдэгдэл, апп болгон суулгах
   S.store = SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStore();
   try {
     S.me = await S.store.init();
@@ -930,10 +933,44 @@ function wireAchievements() {
   wireViewer();
 }
 
+// ---------- Push мэдэгдэл ----------
+const NOTIF_TEXT = {
+  on: ['🔔 Асаалттай', 'Нөгөө хүн бүртгэл хийхэд энэ утсанд мэдэгдэл ирнэ.'],
+  off: ['🔕 Унтраалттай', 'Асаавал нөгөө хүн орлого, зарлага, амжилт нэмэхэд мэдэгдэл ирнэ.'],
+  denied: ['🚫 Хориглогдсон', 'Утасны тохиргоо → хөтөч/апп → Мэдэгдэл хэсгээс зөвшөөрнө үү.'],
+  'ios-install': ['📲 Эхлээд апп болгон суулгана', 'iPhone дээр Safari → Хуваалцах (⬆️) → “Нүүр дэлгэцэнд нэмэх” хийгээд, нүүр дэлгэцээс нээж асаана (iOS 16.4+).'],
+  unsupported: ['⚠️ Дэмжигдэхгүй', 'Энэ хөтөч push мэдэгдэл дэмжихгүй байна. Chrome эсвэл Safari ашиглана уу.'],
+  'no-key': ['⚠️ Тохируулаагүй', 'config.js-д VAPID_PUBLIC_KEY алга.'],
+};
+
+async function renderNotif() {
+  const box = $('#notif-card');
+  if (!box) return;
+  const st = S.store.mode === 'demo' ? 'demo' : await pushState();
+  const [label, note] = st === 'demo' ? ['🧪 Демо горим', 'Push мэдэгдэл Supabase-тэй холбогдсон үед ажиллана.'] : NOTIF_TEXT[st];
+  box.innerHTML = `
+    <h2>🔔 Мэдэгдэл</h2>
+    <div class="notif-row"><b>${label}</b></div>
+    <p class="note">${note}</p>
+    <div class="btn-row">
+      ${st === 'off' ? '<button type="button" class="btn primary block" id="push-on">🔔 Мэдэгдэл асаах</button>' : ''}
+      ${st === 'on' ? '<button type="button" class="btn" id="push-test" style="flex:1">📨 Туршиж үзэх</button><button type="button" class="btn" id="push-off">Унтраах</button>' : ''}
+    </div>`;
+}
+
+async function pushAction(fn, okMsg) {
+  try {
+    await fn();
+    if (okMsg) toast(okMsg);
+  } catch (err) {
+    toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6500 });
+  }
+  renderNotif();
+}
+
 // ---------- Бусад ----------
 function renderMore() {
   const demo = S.store.mode === 'demo';
-  const partner = S.store.admins.find((a) => a.user_id !== S.me.user_id);
   $('#profile').innerHTML = `
     <h2>👤 Профайл</h2>
     <div class="profile">
@@ -943,9 +980,8 @@ function renderMore() {
         <span class="avatar-cam" aria-hidden="true">📷</span>
       </label>
       <div style="min-width:0">
-        <b>${esc(S.me.name)}</b>
-        <div class="muted" style="font-size:13px">${demo ? '🧪 Демо горим — өгөгдөл энэ хөтөчид' : '☁️ Хоёр утсанд шууд шинэчлэгдэнэ'}</div>
-        ${partner ? `<div class="partner">${av(partner, 'xs')} ${esc(partner.name)}-тай хамт 💑</div>` : ''}
+        <b class="profile-name">${esc(S.me.name)}</b>
+        ${demo ? '<div class="muted" style="font-size:13px">🧪 Демо горим</div>' : ''}
       </div>
     </div>
     <div class="btn-row">
@@ -953,6 +989,8 @@ function renderMore() {
       ${S.me.avatar_url ? '<button type="button" class="btn" id="avatar-remove">Арилгах</button>' : ''}
     </div>
     <div class="btn-row"><button type="button" class="btn block" id="logout">🚪 ${demo ? 'Хэрэглэгч солих' : 'Гарах'}</button></div>`;
+
+  renderNotif();
 
   $('#rules').innerHTML = `
     <h2>📐 Хуваарилалтын дүрэм</h2>
@@ -1130,6 +1168,9 @@ function wireGlobal() {
     if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
 
     if (e.target.closest('#audit-more')) { S.auditLimit += 50; renderAudit(); return; }
+    if (e.target.closest('#push-on')) return pushAction(() => enablePush(S.store), '🔔 Мэдэгдэл асаалаа!');
+    if (e.target.closest('#push-off')) return pushAction(() => disablePush(S.store), '🔕 Мэдэгдэл унтарлаа');
+    if (e.target.closest('#push-test')) return pushAction(() => S.store.testPush(), '📨 Туршилтын мэдэгдэл илгээлээ');
     const rm = e.target.closest('#avatar-remove');
     if (rm) return armThen(rm, 'Арилгах уу?', () => changeAvatar(null));
     if (e.target.closest('#logout')) {
@@ -1145,7 +1186,10 @@ function wireGlobal() {
   document.addEventListener('change', async (e) => {
     if (e.target.id !== 'avatar-file' || !e.target.files[0]) return;
     try {
-      await changeAvatar(await resizeSquare(e.target.files[0]));
+      const file = e.target.files[0];
+      e.target.value = ''; // ижил зургийг дахин сонгож болно
+      const blob = await cropAvatar(file);
+      if (blob) await changeAvatar(blob);
     } catch (err) {
       toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
     }
