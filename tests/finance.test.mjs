@@ -136,3 +136,69 @@ test('формат ба туслах функцууд', () => {
   assert.equal(spendLevel(950, 1000), 'bad');
   assert.equal(spendLevel(10, 0), 'bad');
 });
+
+// ---------- Санамсаргүй дүнгээр дүрмийг шалгах ----------
+function rng(seed) {
+  return () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+}
+
+test('санамсаргүй 20,000 дүн: нийлбэр хадгалагдана, хувь ба илүүдлийн дүрэм биелнэ', () => {
+  const r = rng(42);
+  const PCT = { household: 60, savings: 10, travel: 5, goal: 5, risk: 20 };
+  for (let i = 0; i < 20_000; i++) {
+    const total = i < 200 ? i : Math.floor(r() * 12_000_000);
+    const a = allocate(total);
+    assert.equal(sum(a), total, `нийлбэр ${total}`);
+    for (const k of Object.keys(PCT)) assert.ok(a[k] >= 0, `сөрөг ${k} ${total}`);
+
+    if (total <= 4_000_000) {
+      assert.equal(a.excess, 0);
+      for (const k of ['household', 'savings', 'travel', 'goal']) {
+        assert.ok(Math.abs(a[k] - (total * PCT[k]) / 100) < 1, `${k} ${total}`);
+      }
+      assert.ok(a.risk - (total * 20) / 100 < 5 && a.risk >= Math.floor((total * 20) / 100), `risk ${total}`);
+    } else {
+      const ex = total - 4_000_000;
+      assert.equal(a.excess, ex);
+      assert.equal(a.household, 2_400_000, `өрх илүүдэл авахгүй ${total}`);
+      // илүүдэл 10:5:5:20 харьцаагаар
+      for (const k of ['savings', 'travel', 'goal']) {
+        assert.ok(Math.abs(a[k] - (40_000 * PCT[k] + (ex * PCT[k]) / 40)) < 1, `${k} ${total}`);
+      }
+      assert.ok(Math.abs(a.risk - (800_000 + ex / 2)) < 4, `risk ${total}`);
+    }
+  }
+});
+
+test('санамсаргүй 12 сарын гүйлгээ: шилжилт ба хуримтлал гинжин байдлаар зөв', () => {
+  const r = rng(7);
+  for (let run = 0; run < 300; run++) {
+    const incomes = [], expenses = [];
+    for (let m = 1; m <= 12; m++) {
+      if (r() < 0.15) continue; // заримдаа хоосон сар
+      const mm = String(m).padStart(2, '0');
+      for (let j = 0; j < 1 + Math.floor(r() * 3); j++) incomes.push({ date: `2027-${mm}-0${1 + j}`, amount: Math.floor(r() * 2_500_000) + 1 });
+      for (let j = 0; j < Math.floor(r() * 20); j++) expenses.push({ date: `2027-${mm}-1${j % 10}`, amount: Math.floor(r() * 300_000) + 1, deleted: r() < 0.05 });
+    }
+    const L = buildLedger(incomes, expenses, { toMonth: '2027-12' });
+    let carry = 0;
+    const acc = { savings: 0, travel: 0, goal: 0, risk: 0 };
+    for (const row of L) {
+      const inc = incomes.filter((x) => x.date.startsWith(row.month)).reduce((s, x) => s + x.amount, 0);
+      const exp = expenses.filter((x) => !x.deleted && x.date.startsWith(row.month)).reduce((s, x) => s + x.amount, 0);
+      assert.equal(row.income, inc);
+      assert.equal(row.spent, exp);
+      assert.equal(row.carryIn, carry);
+      assert.equal(row.available, allocate(inc).household + carry);
+      assert.equal(row.householdLeft, row.available - exp);
+      carry = row.householdLeft;
+      for (const k of Object.keys(acc)) { acc[k] += allocate(inc)[k]; assert.equal(row.balances[k], acc[k]); }
+      assert.equal(row.balances.household, row.householdLeft);
+    }
+    // Нийт мөнгөний тэнцэл: бүх орлого = бүх зарлага + бүх дансны үлдэгдэл
+    const last = L.at(-1);
+    const totalIn = incomes.reduce((s, x) => s + x.amount, 0);
+    const totalOut = expenses.filter((x) => !x.deleted).reduce((s, x) => s + x.amount, 0);
+    assert.equal(totalIn, totalOut + Object.values(last.balances).reduce((s, v) => s + v, 0));
+  }
+});
