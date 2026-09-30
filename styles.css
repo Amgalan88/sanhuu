@@ -288,15 +288,29 @@ details[open] summary::after { transform: rotate(180deg); }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
 .legend .pct { color: var(--muted); font-size: 12px; margin-left: 4px; }
 
-/* ---------- Нийт хуримтлал ---------- */
-.ov-total { padding: 14px; border-radius: 16px; background: linear-gradient(135deg, #0a2461, #1a4fa8); color: #fff; }
-.ov-total small { display: block; font-size: 13px; font-weight: 700; opacity: .85; }
-.ov-total b { display: block; font-size: 30px; line-height: 1.15; margin-top: 2px; color: #ffd978; }
-.ov-delta { display: inline-block; margin-top: 6px; font-size: 12.5px; font-weight: 700; padding: 2px 10px; border-radius: 99px; background: rgba(255, 255, 255, .14); }
-.ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-.ov-tile { padding: 9px 10px 9px 12px; border-radius: 14px; background: var(--surface-2); border-left: 4px solid var(--c); min-width: 0; }
-.ov-tile span { display: block; font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ov-tile b { display: block; font-size: 15.5px; font-weight: 700; margin-top: 1px; }
+/* ---------- Дээд самбар: өрхийн данс + хуримтлал ---------- */
+.ov-house { padding: 14px; border-radius: 16px; background: linear-gradient(135deg, #0a2461, #1a4fa8); color: #fff; }
+.ov-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ov-head small { font-size: 13px; font-weight: 700; opacity: .88; }
+.ov-pct { font-size: 12px; font-weight: 800; padding: 2px 9px; border-radius: 99px; background: rgba(60, 207, 133, .22); color: #8ff0bd; }
+.ov-pct.warn { background: rgba(245, 179, 1, .22); color: #ffd66b; }
+.ov-pct.bad { background: rgba(255, 99, 104, .25); color: #ffabae; }
+.ov-house > b { display: block; font-size: 34px; line-height: 1.15; margin: 4px 0 10px; color: #ffd978; }
+.ov-house > b.neg { color: #ff9ea1; }
+.ov-house .bar { background: rgba(255, 255, 255, .16); }
+.ov-house .bar.ok > i { background: #3ccf85; }
+.ov-house .bar.warn > i { background: #f5b301; }
+.ov-house .bar.bad > i { background: #ff6368; }
+.ov-sub { display: block; margin-top: 6px; font-size: 12.5px; opacity: .85; }
+.ov-saved { margin-top: 10px; }
+.ov-saved-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 700; font-size: 14px; }
+.ov-saved-head b { font-size: 16px; }
+.ov-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.ov-chip {
+  display: grid; justify-items: center; gap: 1px; padding: 6px 2px; border-radius: 12px;
+  background: var(--surface-2); border-bottom: 3px solid var(--c); font-size: 15px; min-width: 0;
+}
+.ov-chip b { font-size: 12px; font-weight: 700; white-space: nowrap; }
 
 /* ---------- 3D ---------- */
 .coins {
@@ -452,8 +466,8 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bott
   .month-nav { grid-column: auto; grid-row: 1; grid-column: 2; max-width: 340px; justify-self: center; width: 100%; }
   .brand { font-size: 19px; }
   .coins { height: 400px; }
-  #overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; }
-  .ov-grid { margin-top: 0; }
+  #overview { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: center; }
+  .ov-saved { margin-top: 0; }
   #coin-mode { max-width: 420px; }
   .view[data-view="tx"].active, .view[data-view="more"].active { grid-template-columns: 1fr 1fr; align-items: start; }
   .view[data-view="tx"] #breakdown { grid-column: 1 / -1; }

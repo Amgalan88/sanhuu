@@ -167,6 +167,17 @@ export function fmtNum(n) {
 
 export const fmt = (n) => `${fmtNum(n)}₮`;
 
+/** Товч формат: 1,330,000 → "1.33 сая", 237,500 → "237.5 мян". */
+export function fmtShort(n) {
+  const v = Math.trunc(Number(n) || 0);
+  const a = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  const trim = (x) => x.replace(/\.?0+$/, '');
+  if (a >= 1_000_000) return `${sign}${trim((a / 1_000_000).toFixed(2))} сая`;
+  if (a >= 1_000) return `${sign}${trim((a / 1_000).toFixed(1))} мян`;
+  return fmt(v);
+}
+
 export function parseAmount(str) {
   const digits = String(str ?? '').replace(/\D/g, '');
   return digits ? Math.min(Number(digits), 999_999_999) : 0;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allocate, buildLedger, fmt, parseAmount, monthRange, spendLevel } from '../js/finance.js';
+import { allocate, buildLedger, fmt, fmtShort, parseAmount, monthRange, spendLevel } from '../js/finance.js';
 import { buildMock, ENKH, TSETSGEE } from '../js/mock.js';
 
 const pick = (a) => ({ household: a.household, savings: a.savings, travel: a.travel, goal: a.goal, risk: a.risk });
@@ -129,6 +129,12 @@ test('формат ба туслах функцууд', () => {
   assert.equal(fmt(-20_000), '-20,000₮');
   assert.equal(fmt(0), '0₮');
   assert.equal(parseAmount('2,400,000₮'), 2_400_000);
+  assert.equal(fmtShort(1_330_000), '1.33 сая');
+  assert.equal(fmtShort(2_000_000), '2 сая');
+  assert.equal(fmtShort(237_500), '237.5 мян');
+  assert.equal(fmtShort(665_000), '665 мян');
+  assert.equal(fmtShort(-150_000), '-150 мян');
+  assert.equal(fmtShort(500), '500₮');
   assert.equal(parseAmount(''), 0);
   assert.deepEqual(monthRange('2026-11', '2027-02'), ['2026-11', '2026-12', '2027-01', '2027-02']);
   assert.equal(spendLevel(500, 1000), 'ok');

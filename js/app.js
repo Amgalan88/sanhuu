@@ -1,7 +1,7 @@
 import {
   TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
-  fmt, fmtNum, parseAmount,
+  fmt, fmtNum, fmtShort, parseAmount,
 } from './finance.js';
 import { describe } from './mock.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
@@ -416,12 +416,10 @@ function renderMockBanner() {
     </div>` : '';
 }
 
-// Сарын самбар: орлого ба өрхийн зарцуулалт. Хуваарилалтын дэлгэрэнгүй нь "дэлгэх" дотор.
+// Сарын самбар: орлого ба 4 саяын зорилт. Хуваарилалтын дэлгэрэнгүй нь "дэлгэх" дотор.
 function renderSummary() {
   const r = rowOf(S.month);
   const goalPct = pct(r.income, TARGET);
-  const lvl = spendLevel(r.spent, r.available);
-  const spentPct = r.available > 0 ? pct(r.spent, r.available) : r.spent ? 100 : 0;
   const goalText = r.income > TARGET ? `🎉 +${fmt(r.excess)} илүүдэл`
     : r.income === TARGET ? '🏆 Биелсэн'
     : r.income ? `${fmt(TARGET - r.income)} дутуу` : 'Орлого бүртгээгүй';
@@ -434,10 +432,6 @@ function renderSummary() {
     <div class="bar" role="progressbar" aria-valuenow="${Math.round(goalPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="4 саяын зорилт"><i style="width:${goalPct}%"></i></div>
     <div class="between"><span>${goalText}</span><span>зорилт ${fmtNum(TARGET)}</span></div>
 
-    <div class="sum-row" style="margin-top:14px"><span>🏠 Өрхийн данс үлдэгдэл</span><b class="num ${r.householdLeft < 0 ? 'neg' : ''}">${fmt(r.householdLeft)}</b></div>
-    <div class="bar ${lvl}" role="progressbar" aria-valuenow="${Math.round(spentPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Өрхийн зарцуулалт"><i style="width:${spentPct}%"></i></div>
-    <div class="between"><span>${fmt(r.spent)} зарцуулсан</span><span>${fmt(r.available)}-аас</span></div>
-
     <details ${open}>
       <summary>Хуваарилалтын дэлгэрэнгүй</summary>
       <ul class="legend">
@@ -448,24 +442,27 @@ function renderSummary() {
     </details>`;
 }
 
-// Нийт хуримтлал: 4 хадгаламжийн дансны үлдэгдэл (өрхийн данс сарын самбарт)
+// Дээд самбар: өрхийн дансны одоогийн үлдэгдэл (том) + хуримтлал (хураангуй)
 function renderOverview() {
   const r = rowOf(S.month);
+  const lvl = spendLevel(r.spent, r.available);
+  const spentPct = r.available > 0 ? pct(r.spent, r.available) : r.spent ? 100 : 0;
   const saved = SAVING_KEYS.reduce((s, k) => s + r.balances[k], 0);
-  const savedMonth = SAVING_KEYS.reduce((s, k) => s + r.alloc[k], 0);
   const when = S.month === currentMonth() ? '' : ` · ${monthLabel(S.month, false)}ын эцэст`;
+  const left = r.householdLeft;
+
   $('#overview').innerHTML = `
-    <div class="ov-total">
-      <small>💰 Нийт хуримтлал${when}</small>
-      <b class="num">${fmt(saved)}</b>
-      ${savedMonth ? `<span class="ov-delta">+${fmt(savedMonth)} энэ сар</span>` : ''}
+    <div class="ov-house">
+      <div class="ov-head"><small>🏠 Өрхийн дансны үлдэгдэл${when}</small>${r.available > 0 ? `<span class="ov-pct ${lvl}">${Math.round(spentPct)}%</span>` : ''}</div>
+      <b class="num ${left < 0 ? 'neg' : ''}">${fmt(left)}</b>
+      <div class="bar ${lvl}" role="progressbar" aria-valuenow="${Math.round(spentPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Өрхийн зарцуулалт"><i style="width:${spentPct}%"></i></div>
+      <small class="ov-sub">${left < 0 ? `⚠️ ${fmt(-left)} хэтэрсэн — дараа сараас хасагдана` : `${fmt(r.available)}-аас ${fmt(r.spent)} зарцуулсан`}</small>
     </div>
-    <div class="ov-grid">
-      ${SAVING_KEYS.map((k) => `
-        <div class="ov-tile" style="--c:${ACC[k].color}">
-          <span>${ACC[k].emoji} ${ACC[k].name}</span>
-          <b class="num">${fmt(r.balances[k])}</b>
-        </div>`).join('')}
+    <div class="ov-saved">
+      <div class="ov-saved-head"><span>💰 Хуримтлал</span><b class="num">${fmt(saved)}</b></div>
+      <div class="ov-chips">
+        ${SAVING_KEYS.map((k) => `<span class="ov-chip" style="--c:${ACC[k].color}" title="${ACC[k].name}: ${fmt(r.balances[k])}">${ACC[k].emoji}<b>${fmtShort(r.balances[k])}</b></span>`).join('')}
+      </div>
     </div>`;
 }
 
