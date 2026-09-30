@@ -42,6 +42,7 @@ const S = {
   q: { kind: 'expense', amount: 0, cat: null },
   saving: false,
   coins: null,
+  coinMode: 'total',
 };
 
 const adminOf = (id) => S.store.admins.find((a) => a.user_id === id) || { emoji: '🙂', name: 'Тодорхойгүй' };
@@ -364,7 +365,7 @@ function renderAll() {
   renderMonthNav();
   renderMockBanner();
   renderSummary();
-  renderAccounts();
+  renderOverview();
   renderCoins();
   renderBreakdown();
   renderExpenses();
@@ -443,30 +444,52 @@ function renderSummary() {
     </div>`;
 }
 
-function renderAccounts() {
+// Хуримтлагдсан үлдэгдэл: сонгосон сарын эцэст (одоогийн сар бол одоогийн байдлаар)
+function balanceCaption() {
+  return S.month === currentMonth() ? 'Одоогийн байдлаар' : `${monthLabel(S.month, false)}ын эцэст`;
+}
+
+function renderOverview() {
   const r = rowOf(S.month);
-  $('#accounts').innerHTML = ACCOUNTS.map((a) => {
-    const bal = r.balances[a.key];
-    const isHouse = a.key === 'household';
-    return `
-      <article class="acct ${isHouse ? 'wide' : ''}" style="--c:${a.color}">
-        <div class="acct-top"><span class="acct-emoji">${a.emoji}</span><span class="acct-pct">${a.pct}%</span></div>
-        <div class="acct-name">${a.name}</div>
-        <div class="acct-bal num ${bal < 0 ? 'neg' : ''}">${fmt(bal)}</div>
-        <div class="acct-delta"><b>+${fmtNum(r.alloc[a.key])}</b> энэ сар${isHouse && r.carryIn ? ` · шилжсэн ${signed(r.carryIn)}` : ''}${isHouse && r.spent ? ` · зарлага ${fmt(r.spent)}` : ''}</div>
-      </article>`;
-  }).join('');
+  const saved = SAVING_KEYS.reduce((s, k) => s + r.balances[k], 0);
+  const savedMonth = SAVING_KEYS.reduce((s, k) => s + r.alloc[k], 0);
+  $('#overview').innerHTML = `
+    <div class="card-head"><h2>💰 Дансны үлдэгдэл</h2><span class="pill gold">${balanceCaption()}</span></div>
+    <div class="ov-total">
+      <small>Нийт хуримтлал · 4 данс</small>
+      <b class="num">${fmt(saved)}</b>
+      ${savedMonth ? `<span class="ov-delta">+${fmt(savedMonth)} энэ сард нэмэгдсэн</span>` : ''}
+    </div>
+    <ul class="ov-list">
+      ${ACCOUNTS.map((a) => {
+        const bal = r.balances[a.key];
+        const sub = a.key === 'household'
+          ? (r.available ? `${fmt(r.available)}-аас ${fmt(r.spent)} зарцуулсан` : 'Энэ сар хуваарилалт алга')
+          : (r.alloc[a.key] ? `+${fmt(r.alloc[a.key])} энэ сар` : 'энэ сар нэмэгдээгүй');
+        return `
+          <li style="--c:${a.color}">
+            <span class="ov-emoji">${a.emoji}</span>
+            <span class="ov-name">${a.name} <em>${a.pct}%</em><small>${sub}</small></span>
+            <b class="num ${bal < 0 ? 'neg' : ''}">${fmt(bal)}</b>
+          </li>`;
+      }).join('')}
+    </ul>`;
 }
 
 function renderCoins() {
   const host = $('#coins');
   if (!S.coins) {
     S.coins = createCoins3D(host, { reducedMotion }) || 'none';
-    if (S.coins === 'none') host.innerHTML = '<div class="coins-fallback">🪙 3D харагдац энэ төхөөрөмж дээр ажиллахгүй байна.<br>Дансны дүнг дээрх картуудаас харна уу.</div>';
+    if (S.coins === 'none') host.innerHTML = '<div class="coins-fallback">🪙 3D харагдац энэ төхөөрөмж дээр ажиллахгүй байна.<br>Дансны дүнг дээрх самбараас харна уу.</div>';
   }
+  $$('#coin-mode button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.coinMode === S.coinMode)));
+  $('#coin-caption').textContent = S.coinMode === 'total'
+    ? `Эхнээс нь хуримтлагдсан нийт үлдэгдэл · ${balanceCaption().toLowerCase()}`
+    : `${monthLabel(S.month, false)}ын орлогоос хуваарилагдсан дүн`;
   if (S.coins === 'none') return;
   const r = rowOf(S.month);
-  S.coins.update(ACCOUNTS.map((a) => ({ ...a, amount: r.balances[a.key], amountText: fmt(r.balances[a.key]) })));
+  const val = (k) => (S.coinMode === 'total' ? r.balances[k] : r.alloc[k]);
+  S.coins.update(ACCOUNTS.map((a) => ({ ...a, amount: val(a.key), amountText: fmt(val(a.key)) })));
 }
 
 // ---------- Гүйлгээ ----------
@@ -771,6 +794,9 @@ function wireGlobal() {
 
     const c = e.target.closest('[data-clear-mock]');
     if (c) return armThen(c, '⚠️ Тийм, бүгдийг арилгах', clearMock);
+
+    const cm = e.target.closest('[data-coin-mode]');
+    if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
 
     if (e.target.closest('#seed-mock')) return seedMock();
     if (e.target.closest('#audit-more')) { S.auditLimit += 50; renderAudit(); return; }

@@ -296,22 +296,26 @@ main {
 .mini b.pos { color: var(--ok); }
 .mini b.neg { color: var(--bad); }
 
-/* ---------- 5 данс ---------- */
-.accounts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.acct {
-  position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--border);
-  border-radius: 20px; padding: 14px; box-shadow: var(--shadow); min-width: 0;
+/* ---------- Дансны үлдэгдэл (дээд самбар) ---------- */
+.ov-total {
+  padding: 14px; border-radius: 16px; margin-bottom: 6px;
+  background: linear-gradient(135deg, #0a2461, #1a4fa8); color: #fff;
 }
-.acct::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--c); }
-.acct.wide { grid-column: 1 / -1; }
-.acct-top { display: flex; justify-content: space-between; align-items: center; }
-.acct-emoji { font-size: 24px; line-height: 1; }
-.acct-pct { font-size: 12px; font-weight: 700; color: var(--muted); background: var(--surface-2); border-radius: 99px; padding: 2px 8px; }
-.acct-name { font-weight: 700; font-size: 13.5px; margin-top: 8px; }
-.acct-bal { font-size: 19px; font-weight: 700; margin-top: 2px; word-break: break-all; }
-.acct.wide .acct-bal { font-size: 26px; }
-.acct-delta { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.acct-delta b { color: var(--ok); font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+.ov-total small { display: block; font-size: 12.5px; font-weight: 600; opacity: .8; }
+.ov-total b { display: block; font-size: 30px; line-height: 1.15; margin-top: 2px; color: #ffd978; }
+.ov-delta { display: inline-block; margin-top: 6px; font-size: 12.5px; font-weight: 700; padding: 2px 10px; border-radius: 99px; background: rgba(255, 255, 255, .14); }
+.ov-list { list-style: none; margin: 0; padding: 0; }
+.ov-list li {
+  display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: center;
+  padding: 10px 0 10px 10px; border-bottom: 1px solid var(--border); position: relative;
+}
+.ov-list li:last-child { border-bottom: 0; }
+.ov-list li::before { content: ''; position: absolute; left: 0; top: 12px; bottom: 12px; width: 4px; border-radius: 4px; background: var(--c); }
+.ov-emoji { width: 36px; height: 36px; display: grid; place-items: center; font-size: 19px; border-radius: 11px; background: var(--surface-2); }
+.ov-name { font-weight: 700; font-size: 14px; min-width: 0; }
+.ov-name em { font-style: normal; font-size: 11.5px; color: var(--muted); font-weight: 700; margin-left: 2px; }
+.ov-name small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
+.ov-list b { font-size: 16px; font-weight: 700; white-space: nowrap; }
 
 /* ---------- 3D ---------- */
 .coins {
@@ -466,16 +470,17 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bott
   .topbar { grid-template-columns: auto 1fr auto; padding-left: max(16px, calc((100% - 1120px) / 2 + 16px)); padding-right: max(16px, calc((100% - 1120px) / 2 + 16px)); }
   .month-nav { grid-column: auto; grid-row: 1; grid-column: 2; max-width: 340px; justify-self: center; width: 100%; }
   .brand { font-size: 19px; }
-  .accounts { grid-template-columns: repeat(4, 1fr); }
   .coins { height: 400px; }
+  #overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 0 20px; align-items: start; }
+  #overview .card-head { grid-column: 1 / -1; }
+  .ov-total { margin-bottom: 0; }
+  #coin-mode { max-width: 420px; }
   .view[data-view="tx"].active, .view[data-view="more"].active { grid-template-columns: 1fr 1fr; align-items: start; }
   .view[data-view="tx"] #breakdown { grid-column: 1 / -1; }
 }
 @media (min-width: 1000px) {
   .view[data-view="home"].active { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: start; }
-  .accounts, .coins-card { grid-column: 1 / -1; }
-  .accounts { grid-template-columns: 1.4fr repeat(4, 1fr); }
-  .acct.wide { grid-column: auto; }
+  .coins-card { grid-column: 1 / -1; }
   .tabbar { left: 50%; right: auto; transform: translateX(-50%); bottom: 14px; width: 460px; border-radius: 22px; border: 1px solid var(--border); padding: 6px; box-shadow: var(--shadow); }
   .fab { display: none; }
   .toasts { bottom: 96px; }

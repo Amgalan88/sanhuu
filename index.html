@@ -58,6 +58,7 @@
       <!-- Нүүр -->
       <section class="view" data-view="home">
         <div id="mock-banner" class="span-all"></div>
+        <section class="card span-all" id="overview" aria-label="Дансны үлдэгдэл"></section>
 
         <section class="card quick" id="quick" aria-label="Хурдан бүртгэл">
           <div class="seg kind" role="group" aria-label="Төрөл">
@@ -79,9 +80,13 @@
         </section>
 
         <section class="card" id="summary"></section>
-        <section id="accounts" class="accounts" aria-label="5 данс"></section>
         <section class="card coins-card">
           <div class="card-head"><h2>🪙 Дансны овоо</h2><span class="hint">← чирж эргүүлнэ →</span></div>
+          <div class="seg" id="coin-mode" role="group" aria-label="Овооны харагдац">
+            <button type="button" data-coin-mode="total">🏦 Нийт хуримтлал</button>
+            <button type="button" data-coin-mode="month">📅 Энэ сар</button>
+          </div>
+          <p id="coin-caption" class="note" style="margin:8px 2px 10px"></p>
           <div id="coins" class="coins"></div>
         </section>
       </section>
