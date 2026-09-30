@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="mn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a2461">
+  <meta name="description" content="Гэр бүлийн нийтийн данс — орлогыг 5 дансанд автоматаар хуваарилж, зарлагыг хялбар бүртгэнэ.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Бидний санхүү">
+  <title>Бидний санхүү</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Manrope:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    // Сэдвийг эрт тавьж анивчихаас сэргийлнэ
+    try { const t = localStorage.getItem('bidnii-sanhuu-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div id="boot" class="boot" aria-live="polite">
+    <div class="boot-coin">🪙</div>
+    <div class="logo">Бидний <span>санхүү</span></div>
+  </div>
+
+  <!-- ============ Нэвтрэх ============ -->
+  <section id="login" class="login" hidden>
+    <div class="login-card">
+      <div class="login-coin">🪙</div>
+      <h1 class="logo big">Бидний <span>санхүү</span></h1>
+      <p class="login-sub">Гэр бүлийн нийтийн данс</p>
+      <div id="login-body"></div>
+      <p id="login-error" class="login-error" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- ============ Апп ============ -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="brand"><span aria-hidden="true">🪙</span> <span class="logo">Бидний <span>санхүү</span></span></div>
+      <button id="who" class="who" type="button" aria-label="Хэрэглэгч"></button>
+      <div class="month-nav">
+        <button type="button" id="month-prev" class="icon-btn" aria-label="Өмнөх сар">‹</button>
+        <select id="month-select" aria-label="Сар сонгох"></select>
+        <button type="button" id="month-next" class="icon-btn" aria-label="Дараах сар">›</button>
+      </div>
+    </header>
+
+    <div class="ticker-wrap"><p id="ticker" class="ticker" aria-live="polite"></p></div>
+
+    <main>
+      <!-- Нүүр -->
+      <section class="view" data-view="home">
+        <div id="mock-banner" class="span-all"></div>
+
+        <section class="card quick" id="quick" aria-label="Хурдан бүртгэл">
+          <div class="seg kind" role="group" aria-label="Төрөл">
+            <button type="button" data-kind="expense">➖ Зарлага</button>
+            <button type="button" data-kind="income">➕ Орлого</button>
+          </div>
+          <label class="amount-wrap">
+            <input id="amount" inputmode="numeric" autocomplete="off" placeholder="0" enterkeyhint="done" aria-label="Дүн">
+            <span class="cur">₮</span>
+          </label>
+          <div class="chips" id="chips"></div>
+          <div class="cats" id="cats" role="group" aria-label="Ангилал"></div>
+          <div class="extra">
+            <input id="note" type="text" maxlength="200" placeholder="📝 Тайлбар (заавал биш)" enterkeyhint="done" autocomplete="off">
+            <input id="date" type="date" aria-label="Огноо">
+          </div>
+          <button type="button" id="save" class="save"></button>
+          <p id="preview" class="preview" aria-live="polite"></p>
+        </section>
+
+        <section class="card" id="summary"></section>
+        <section id="accounts" class="accounts" aria-label="5 данс"></section>
+        <section class="card coins-card">
+          <div class="card-head"><h2>🪙 Дансны овоо</h2><span class="hint">← чирж эргүүлнэ →</span></div>
+          <div id="coins" class="coins"></div>
+        </section>
+      </section>
+
+      <!-- Гүйлгээ -->
+      <section class="view" data-view="tx">
+        <section class="card" id="breakdown"></section>
+        <section class="card" id="expenses"></section>
+        <section class="card" id="incomes"></section>
+      </section>
+
+      <!-- Түүх -->
+      <section class="view" data-view="history">
+        <section class="card span-all" id="history"></section>
+        <section class="card span-all" id="audit"></section>
+      </section>
+
+      <!-- Бусад -->
+      <section class="view" data-view="more">
+        <section class="card" id="profile"></section>
+        <section class="card" id="theme-card">
+          <h2>🎨 Харагдах байдал</h2>
+          <div class="seg three" id="theme-seg" role="group" aria-label="Сэдэв">
+            <button type="button" data-theme-set="system">🌗 Систем</button>
+            <button type="button" data-theme-set="light">☀️ Гэрэл</button>
+            <button type="button" data-theme-set="dark">🌙 Харанхуй</button>
+          </div>
+        </section>
+        <section class="card" id="mock-card"></section>
+        <section class="card" id="rules"></section>
+      </section>
+    </main>
+
+    <button type="button" id="fab" class="fab" aria-label="Шинэ бүртгэл">+</button>
+
+    <nav class="tabbar" aria-label="Үндсэн цэс">
+      <button type="button" data-go="home"><span>🏠</span>Нүүр</button>
+      <button type="button" data-go="tx"><span>📋</span>Гүйлгээ</button>
+      <button type="button" data-go="history"><span>📊</span>Түүх</button>
+      <button type="button" data-go="more"><span>⚙️</span>Бусад</button>
+    </nav>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>

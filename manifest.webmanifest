@@ -1,0 +1,11 @@
+{
+  "name": "Бидний санхүү",
+  "short_name": "Санхүү",
+  "description": "Гэр бүлийн нийтийн данс",
+  "lang": "mn",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a2461",
+  "theme_color": "#0a2461",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
