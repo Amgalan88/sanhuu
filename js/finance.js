@@ -31,6 +31,7 @@ export const INCOME_SOURCES = [
 ];
 
 export const categoryOf = (key) => EXPENSE_CATEGORIES.find((c) => c.key === key) || EXPENSE_CATEGORIES.at(-1);
+export const accountOf = (key) => ACCOUNTS.find((a) => a.key === key) || ACCOUNTS[0];
 export const sourceOf = (key) => INCOME_SOURCES.find((c) => c.key === key) || INCOME_SOURCES.at(-1);
 
 /**
@@ -178,6 +179,25 @@ export function allocDelta(before, after) {
   return Object.fromEntries(ACCOUNTS.map((x) => [x.key, b[x.key] - a[x.key]]));
 }
 
+/**
+ * Орлого бүрийн хуваарилалт ("байршуулах даалгавар"). Сар бүрт бүртгэсэн дарааллаар нь
+ * allocDelta(өмнөх орлогын нийлбэр, нийлбэр + энэ орлого) — сарын нийлбэр нь allocate(сарын орлого)-той тэнцэнэ.
+ * Буцаах: { [income.id]: { household, savings, travel, goal, risk } }
+ */
+export function incomeSplits(incomes) {
+  const rows = incomes.filter((r) => !r.deleted).sort((a, b) =>
+    String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')) || String(a.id).localeCompare(String(b.id)));
+  const sumBy = {};
+  const out = {};
+  for (const r of rows) {
+    const m = monthKey(r.date);
+    const before = sumBy[m] || 0;
+    sumBy[m] = before + Math.trunc(r.amount);
+    out[r.id] = allocDelta(before, sumBy[m]);
+  }
+  return out;
+}
+
 /** Товч формат: 1,330,000 → "1.33 сая", 237,500 → "237.5 мян". */
 export function fmtShort(n) {
   const v = Math.trunc(Number(n) || 0);
@@ -197,6 +217,14 @@ export function parseAmount(str) {
 /** Үйлдлийн бүртгэлийн текст: "🛒 −45,000₮ зарлага · Хүнс · Номин" */
 export function describe(kind, r) {
   if (kind === 'achievement') return `${r.emoji} Амжилт: ${r.title}`;
+  if (kind === 'transfer') {
+    // r: { income, items: [{ account, amount }] }
+    const s = sourceOf(r.income.source);
+    const what = r.items.length === 1
+      ? `${accountOf(r.items[0].account).emoji} ${accountOf(r.items[0].account).name} ${fmt(r.items[0].amount)}`
+      : r.items.map((t) => `${accountOf(t.account).emoji} ${fmt(t.amount)}`).join(', ');
+    return `${what} · ${s.emoji} ${s.name} ${fmtSigned(r.income.amount, 'income')}-ийн хуваарилалт`;
+  }
   if (kind === 'income') {
     const s = sourceOf(r.source);
     return `${s.emoji} ${fmtSigned(r.amount, 'income')} орлого · ${s.name}${r.note ? ` · ${r.note}` : ''}`;

@@ -54,7 +54,7 @@ create table if not exists public.audit_log (
   id      uuid primary key default gen_random_uuid(),
   at      timestamptz not null default now(),
   user_id uuid not null default auth.uid() references public.admins(user_id),
-  action  text not null check (action in ('add','delete','undo','restore','seed_mock','clear_mock')),
+  action  text not null check (action in ('add','delete','undo','restore','done','seed_mock','clear_mock')),
   text    text not null default '',
   ref_id  uuid,
   mock    boolean not null default false
@@ -128,5 +128,6 @@ begin
 end $$;
 
 -- ============================================================
--- Дараа нь supabase/achievements.sql, supabase/profile.sql-ийг дарааллаар нь ажиллуулна.
+-- Дараа нь supabase/achievements.sql, supabase/profile.sql, supabase/push.sql,
+-- supabase/transfers.sql-ийг дарааллаар нь ажиллуулна.
 -- ============================================================

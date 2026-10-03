@@ -8,7 +8,8 @@ export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 /**
  * @param {{emoji:string, title:string, amount?:string, sub?:string,
- *          lines?:[string,string][], foot?:string, rain?:string[], button?:string, image?:string, undo?:Function}} o
+ *          lines?:[string,string][], foot?:string, rain?:string[], button?:string, image?:string,
+ *          undo?:Function, onOk?:Function}} o — onOk: үндсэн товчийг дарахад (хаасны дараа)
  */
 export function celebrate(o) {
   document.querySelector('.celebrate')?.remove();
@@ -44,7 +45,8 @@ export function celebrate(o) {
   addEventListener('keydown', onKey);
   el.addEventListener('click', (e) => {
     if (e.target.closest('.cel-undo')) { close(); o.undo(); return; }
-    if (e.target === el || e.target.closest('.cel-ok')) close();
+    if (e.target.closest('.cel-ok')) { close(); o.onOk?.(); return; }
+    if (e.target === el) close();
   });
   el.querySelector('.cel-ok').focus({ preventScroll: true });
   timer = setTimeout(close, 9000);

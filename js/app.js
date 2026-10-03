@@ -1,7 +1,7 @@
 import {
   TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
-  fmt, fmtNum, fmtShort, fmtSigned, allocDelta, MINUS, parseAmount, describe,
+  fmt, fmtNum, fmtShort, fmtSigned, allocDelta, incomeSplits, MINUS, parseAmount, describe,
 } from './finance.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { SupabaseStore, LocalStore } from './store.js';
@@ -41,7 +41,7 @@ const THEME_COLOR = { light: '#0a2461', dark: '#060d22', comfort: '#4a3a28' };
 
 const ACTION = {
   add: ['нэмсэн', 'нэмлээ'], delete: ['устгасан', 'устгалаа'], undo: ['буцаасан', 'буцаалаа'],
-  restore: ['сэргээсэн', 'сэргээлээ'],
+  restore: ['сэргээсэн', 'сэргээлээ'], done: ['байршуулсан', 'байршууллаа'],
 };
 
 const S = {
@@ -62,6 +62,11 @@ const S = {
   achievements: [],
   achievementsMissing: false,
   ach: { emoji: '🏆', blob: null },
+  transfers: [],          // байршуулсан хуваарилалт { income_id, account, amount }
+  transfersMissing: false,
+  splits: {},             // орлого бүрийн хуваарилалт: { [income.id]: { household, … } }
+  busy: new Set(),        // илгээж буй даалгавар (давхар дарахаас сэргийлнэ)
+  fresh: null,            // дөнгөж бүртгэсэн орлого (даалгаврыг тодруулна)
 };
 
 const adminOf = (id) => S.store.admins.find((a) => a.user_id === id) || { emoji: '🙂', name: 'Тодорхойгүй' };
@@ -183,6 +188,7 @@ function scheduleReload(ms = 300) {
 function recompute() {
   const cur = currentMonth();
   S.ledger = buildLedger(S.incomes, S.expenses, { toMonth: S.month > cur ? S.month : cur });
+  S.splits = incomeSplits(S.incomes);
 }
 
 function onRemote(ev) {
@@ -373,6 +379,8 @@ async function save() {
     if (kind === 'expense') {
       toast(`${categoryOf(cat).emoji} ${fmtSigned(amount, 'expense')} хадгаллаа. ${pick(EXPENSE_CHEERS)}`, { undo });
     } else {
+      S.fresh = row.id;
+      renderTasks();
       celebrateIncome(cat, amount, incomeBefore, undo); // "Буцаах" нь баярын цонх дотор
     }
     scheduleReload(800);
@@ -400,6 +408,8 @@ function celebrateIncome(cat, amount, before, undo) {
     foot: after > TARGET ? `🎁 Энэ сарын илүүдэл ${fmt(after - TARGET)} — хуримтлал өслөө!`
       : after === TARGET ? '🏆 Энэ сарын 4 саяын зорилт биелсэн!'
       : `🎯 Зорилт хүртэл ${fmt(TARGET - after)} үлдлээ — чадна!`,
+    button: '📋 Даалгавар харах',
+    onOk: goTasks,
     undo,
   });
   if (reached || excessNow) confetti();
@@ -430,6 +440,7 @@ function renderAll() {
   renderMonthNav();
   renderSummary();
   renderOverview();
+  renderTasks();
   renderCoins();
   renderBreakdown();
   renderExpenses();
@@ -506,6 +517,137 @@ function renderOverview() {
         ${SAVING_KEYS.map((k) => `<span class="ov-chip" style="--c:${ACC[k].color}" title="${ACC[k].name}: ${fmt(r.balances[k])}">${ACC[k].emoji}<b>${fmtShort(r.balances[k])}</b></span>`).join('')}
       </div>
     </div>`;
+}
+
+// ---------- Хуваарилалтын даалгавар ----------
+// Орлого бүрийн хуваарилалтыг данс бүрт шилжүүлэх даалгавар. Шилжүүлээд "Байршуулсан" дарна.
+function incomeTasks(r) {
+  const split = S.splits[r.id] || {};
+  const done = Object.fromEntries(S.transfers.filter((t) => t.income_id === r.id).map((t) => [t.account, t]));
+  return ACCOUNTS.filter((a) => split[a.key] > 0 || done[a.key])
+    .map((a) => ({ acc: a, amount: done[a.key]?.amount ?? split[a.key], done: done[a.key] || null }));
+}
+
+function renderTasks() {
+  const box = $('#tasks');
+  const incomes = inMonth(S.incomes).sort(byNewest);
+  box.hidden = !incomes.length;
+  if (!incomes.length) { box.innerHTML = ''; return; }
+
+  const groups = incomes.map((r) => ({ r, tasks: incomeTasks(r) }));
+  const all = groups.flatMap((g) => g.tasks);
+  const nDone = all.filter((t) => t.done).length;
+  const pending = groups.filter((g) => g.tasks.some((t) => !t.done));
+  const finished = groups.filter((g) => g.tasks.every((t) => t.done));
+  const open = $('#tasks details')?.open ? 'open' : '';
+
+  box.innerHTML = `
+    <div class="card-head">
+      <h2>📋 Хуваарилалтын даалгавар</h2>
+      <span class="pill ${nDone === all.length ? 'ok' : 'gold'}">${nDone}/${all.length} байршсан</span>
+    </div>
+    ${S.transfersMissing ? '<p class="note">⚠️ “Байршуулсан” тэмдэглэлийг хадгалахын тулд Supabase → SQL Editor дээр <b>supabase/transfers.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : ''}
+    ${pending.length ? pending.map(taskGroup).join('') : '<p class="tasks-clear">🎉 Энэ сарын бүх хуваарилалт дансандаа байршсан!</p>'}
+    ${finished.length ? `<details ${open}><summary>✅ Бүрэн байршсан орлого · ${finished.length}</summary>${finished.map(taskGroup).join('')}</details>` : ''}`;
+}
+
+function taskGroup({ r, tasks }) {
+  const s = sourceOf(r.source);
+  const a = adminOf(r.created_by);
+  const left = tasks.filter((t) => !t.done).length;
+  return `
+    <div class="tgroup ${r.id === S.fresh ? 'fresh' : ''}" data-income="${r.id}">
+      <div class="tg-head">
+        <span class="tg-title">${s.emoji} ${esc(r.note || s.name)}</span>
+        <b class="num pos">${fmtSigned(r.amount, 'income')}</b>
+      </div>
+      <div class="tg-sub">${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)} · ${left ? `${left} даалгавар үлдсэн` : 'бүгд байршсан ✓'}</div>
+      <ul class="list">${tasks.map((t) => taskRow(r, t)).join('')}</ul>
+      ${left > 1 ? `<button type="button" class="btn small block tg-all" data-done-all="${r.id}" ${S.busy.has(`${r.id}:*`) ? 'disabled' : ''}>✅ Бүгдийг байршуулсан (${left})</button>` : ''}
+    </div>`;
+}
+
+function taskRow(r, t) {
+  const key = `${r.id}:${t.acc.key}`;
+  const who = t.done ? adminOf(t.done.created_by) : null;
+  return `
+    <li class="task ${t.done ? 'done' : ''}" style="--c:${t.acc.color}">
+      <span class="task-e" aria-hidden="true">${t.acc.emoji}</span>
+      <div class="tx-main">
+        <div class="tx-title"><span class="task-ei" aria-hidden="true">${t.acc.emoji} </span>${t.acc.name}</div>
+        <div class="task-sub">
+          <button type="button" class="task-amt num" data-copy="${t.amount}" title="Дүнг хуулах">${fmt(t.amount)}</button>
+          ${t.done ? `<span class="tx-sub">${av(who, 'xs')} ${esc(who.name)} · ${fmtTime(t.done.created_at)}</span>` : ''}
+        </div>
+      </div>
+      ${t.done
+        ? `<button type="button" class="task-btn on" data-undone="${key}" aria-label="${esc(t.acc.name)}: байршуулсныг буцаах">✓</button>`
+        : `<button type="button" class="task-btn" data-done="${key}" ${S.busy.has(key) || S.busy.has(`${r.id}:*`) ? 'disabled' : ''}>Байршуулсан</button>`}
+    </li>`;
+}
+
+// account хоосон бол тухайн орлогын үлдсэн бүх даалгавар
+async function markDone(incomeId, account) {
+  const income = S.incomes.find((r) => r.id === incomeId);
+  const key = `${incomeId}:${account || '*'}`;
+  if (!income || S.busy.has(key)) return;
+  const items = incomeTasks(income).filter((t) => !t.done && (!account || t.acc.key === account))
+    .map((t) => ({ account: t.acc.key, amount: t.amount }));
+  if (!items.length) return;
+
+  S.busy.add(key);
+  renderTasks();
+  try {
+    const rows = await S.store.markDone(income, items);
+    S.transfers.push(...rows);
+    const left = incomeTasks(income).filter((t) => !t.done).length;
+    const a = ACC[items[0].account];
+    toast(!left ? '🎉 Энэ орлогын хуваарилалт бүрэн байршлаа!'
+      : items.length === 1 ? `✅ ${a.emoji} ${a.name} ${fmt(items[0].amount)} байршлаа` : `✅ ${items.length} данс байршлаа`,
+    { undo: () => undoDone(incomeId, rows) });
+    if (!left && !reducedMotion) confetti();
+    scheduleReload(800);
+  } catch (err) {
+    toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
+    scheduleReload();
+  } finally {
+    S.busy.delete(key);
+    renderTasks();
+    refreshTicker();
+  }
+}
+
+// rows: transfers мөрүүд, эсвэл дансны түлхүүр (✓ товчноос)
+async function undoDone(incomeId, rows) {
+  const income = S.incomes.find((r) => r.id === incomeId);
+  if (typeof rows === 'string') rows = S.transfers.filter((t) => t.income_id === incomeId && t.account === rows);
+  if (!income || !rows.length) return;
+  try {
+    await S.store.undoDone(income, rows);
+    const ids = new Set(rows.map((r) => r.id));
+    S.transfers = S.transfers.filter((t) => !ids.has(t.id));
+    renderTasks();
+    refreshTicker();
+    toast('↩️ Буцаалаа');
+    scheduleReload();
+  } catch (err) {
+    toast(`⚠️ Буцааж чадсангүй: ${err.message}`, { kind: 'err' });
+  }
+}
+
+// Банкны апп руу хуулж тавихад: зөвхөн цифр
+async function copyAmount(n) {
+  try {
+    await navigator.clipboard.writeText(String(n));
+    toast(`📋 ${fmtNum(n)} хууллаа`, { ms: 1800 });
+  } catch { /* clipboard зөвшөөрөлгүй */ }
+}
+
+function goTasks() {
+  setView('home', false);
+  const el = $('#tasks');
+  if (el.hidden) return;
+  el.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
 }
 
 function renderCoins() {
@@ -1022,6 +1164,9 @@ function tickerMessages() {
   else if (r.income > 0) m.push(`💪 Зорилт хүртэл ${fmt(TARGET - r.income)} л үлдлээ`);
   else m.push('🌅 Шинэ сар — эхний орлогоо бүртгээрэй');
 
+  const undone = inMonth(S.incomes).flatMap(incomeTasks).filter((t) => !t.done).length;
+  if (undone) m.push(`📋 ${undone} хуваарилалт дансандаа байршаагүй байна`);
+
   const ratio = r.available > 0 ? r.spent / r.available : r.spent > 0 ? 2 : 0;
   if (r.householdLeft < 0) m.push(`⚠️ Өрхийн данс ${fmt(-r.householdLeft)} хэтэрсэн — дараа сараас хасагдана`);
   else if (ratio >= 0.9) m.push(`👀 Өрхийн дансны ${Math.round(ratio * 100)}%-ийг зарцуулсан — бага зэрэг хэмнэе`);
@@ -1159,6 +1304,15 @@ function wireGlobal() {
     const d = e.target.closest('[data-del]');
     if (d) return armThen(d, 'Устгах уу?', () => deleteRow(...d.dataset.del.split(':')));
 
+
+    const dn = e.target.closest('[data-done]');
+    if (dn) return markDone(...dn.dataset.done.split(':'));
+    const da = e.target.closest('[data-done-all]');
+    if (da) return markDone(da.dataset.doneAll);
+    const ud = e.target.closest('[data-undone]');
+    if (ud) return armThen(ud, 'Буцаах уу?', () => undoDone(...ud.dataset.undone.split(':')));
+    const cp = e.target.closest('[data-copy]');
+    if (cp) return copyAmount(Number(cp.dataset.copy));
 
     if (e.target.closest('[data-ach-add]')) return openAchSheet();
     const ao = e.target.closest('[data-ach-open]');

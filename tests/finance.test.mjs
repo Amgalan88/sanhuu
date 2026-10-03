@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allocate, allocDelta, buildLedger, fmt, fmtShort, fmtSigned, parseAmount, monthRange, spendLevel } from '../js/finance.js';
+import { allocate, allocDelta, incomeSplits, buildLedger, fmt, fmtShort, fmtSigned, parseAmount, monthRange, spendLevel } from '../js/finance.js';
 import * as fx from './fixture.mjs';
 import { describe as describeRow } from '../js/finance.js';
 
@@ -220,4 +220,43 @@ test('allocDelta: нэг орлого данс бүрт хэд нэмснийг 
   assert.deepEqual(d, { household: 300_000, savings: 75_000, travel: 37_500, goal: 37_500, risk: 150_000 });
   assert.equal(Object.values(d).reduce((a, b) => a + b, 0), 600_000);
   assert.deepEqual(allocDelta(0, 2_000_000), { household: 1_200_000, savings: 200_000, travel: 100_000, goal: 100_000, risk: 400_000 });
+});
+
+test('incomeSplits: 500,000₮ орлого → 5 дансны даалгавар', () => {
+  const sp = incomeSplits([{ id: 'a', date: '2026-10-03', amount: 500_000, created_at: '2026-10-03T05:00:00Z' }]);
+  assert.deepEqual(sp.a, { household: 300_000, savings: 50_000, travel: 25_000, goal: 25_000, risk: 100_000 });
+});
+
+test('incomeSplits: бүртгэсэн дарааллаар, сарын нийлбэр allocate-тэй тэнцэнэ', () => {
+  const incomes = [
+    // огноо нь эрт ч сүүлд бүртгэсэн — дарааллыг created_at тодорхойлно
+    { id: 'c', date: '2026-10-01', amount: 600_000, created_at: '2026-10-20T00:00:00Z' },
+    { id: 'a', date: '2026-10-05', amount: 3_500_000, created_at: '2026-10-05T00:00:00Z' },
+    { id: 'x', date: '2026-10-06', amount: 999, created_at: '2026-10-06T00:00:00Z', deleted: true },
+    { id: 'n', date: '2026-11-02', amount: 1_000_000, created_at: '2026-11-02T00:00:00Z' },
+  ];
+  const sp = incomeSplits(incomes);
+  assert.deepEqual(sp.a, { household: 2_100_000, savings: 350_000, travel: 175_000, goal: 175_000, risk: 700_000 });
+  // 3.5 сая → 4.1 сая: 500,000 хувиар + 100,000 илүүдэл
+  assert.deepEqual(sp.c, { household: 300_000, savings: 75_000, travel: 37_500, goal: 37_500, risk: 150_000 });
+  assert.equal(sp.x, undefined);
+  assert.deepEqual(sp.n, pick(allocate(1_000_000))); // шинэ сар 0-ээс эхэлнэ
+
+  const r = rng(11);
+  for (let run = 0; run < 200; run++) {
+    const rows = Array.from({ length: 1 + Math.floor(r() * 6) }, (_, i) => ({
+      id: `i${i}`, date: '2027-03-15', amount: Math.floor(r() * 2_000_000) + 1, created_at: `2027-03-15T00:00:0${i}Z`,
+    }));
+    const s = incomeSplits(rows);
+    const total = allocate(rows.reduce((t, x) => t + x.amount, 0));
+    for (const k of Object.keys(pick(total))) assert.equal(rows.reduce((t, x) => t + s[x.id][k], 0), total[k]);
+  }
+});
+
+test('describe: байршуулсан даалгаврын бүртгэл', () => {
+  const income = { amount: 500_000, source: 'salary' };
+  assert.equal(describeRow('transfer', { income, items: [{ account: 'savings', amount: 50_000 }] }),
+    '🏦 Хадгаламж 50,000₮ · 💼 Цалин +500,000₮-ийн хуваарилалт');
+  assert.equal(describeRow('transfer', { income, items: [{ account: 'travel', amount: 25_000 }, { account: 'goal', amount: 25_000 }] }),
+    '✈️ 25,000₮, 🎯 25,000₮ · 💼 Цалин +500,000₮-ийн хуваарилалт');
 });

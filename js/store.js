@@ -4,8 +4,10 @@
 //
 // Интерфэйс: init() → me|null, signIn(), signOut(), loadAll(), add(kind, fields),
 // remove(kind, row, action), restore(kind, row), addAchievement(fields, images{full,thumb}),
-// setAvatar(blob|null), savePushSubscription(), deletePushSubscription(), testPush(), subscribe(cb)
+// setAvatar(blob|null), markDone(income, items), undoDone(income, rows),
+// savePushSubscription(), deletePushSubscription(), testPush(), subscribe(cb)
 // kind: 'income' | 'expense' | 'achievement'
+// transfers: орлогын хуваарилалтыг дансанд байршуулсан тэмдэглэл { income_id, account, amount }
 
 import { describe } from './finance.js';
 import { blobToDataURL } from './image.js';
@@ -15,7 +17,8 @@ const BUCKET = 'achievements'; // амжилтын зураг: <user_id>/<id>.jp
 const SIGN_TTL = 60 * 60 * 24;
 const thumbOf = (path) => path.replace(/\.jpg$/, '_t.jpg'); // жижиг хувилбар: <id>_t.jpg
 const nowISO = () => new Date().toISOString();
-const PUSH_VERB = { add: 'нэмлээ', delete: 'устгалаа', undo: 'буцаалаа', restore: 'сэргээлээ' };
+const PUSH_VERB = { add: 'нэмлээ', delete: 'устгалаа', undo: 'буцаалаа', restore: 'сэргээлээ', done: 'байршууллаа' };
+const missingTable = (error) => error?.code === 'PGRST205' || error?.code === '42P01';
 
 export function uuid() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -56,7 +59,8 @@ export class SupabaseStore {
 
   async signOut() {
     if (this.channel) this.sb.removeChannel(this.channel);
-    this.channel = null;
+    if (this.transferChannel) this.sb.removeChannel(this.transferChannel);
+    this.channel = this.transferChannel = null;
     await this.sb.auth.signOut();
     this.me = null;
   }
@@ -100,15 +104,57 @@ export class SupabaseStore {
   }
 
   async loadAll() {
-    const [incomes, expenses, audit, achievements] = await Promise.all([
+    const [incomes, expenses, audit, achievements, transfers] = await Promise.all([
       this.#fetchAll('incomes'),
       this.#fetchAll('expenses'),
       this.sb.from('audit_log').select('*').eq('mock', false).order('at', { ascending: false }).limit(300)
         .then(({ data, error }) => { if (error) throw error; return data; }),
       this.#fetchAchievements(),
+      this.#fetchTransfers(),
       this.#loadAdmins(), // профайл зураг шинэчлэгдсэн байж болно
     ]);
-    return { incomes, expenses, audit, achievements, achievementsMissing: this.achievementsMissing };
+    return {
+      incomes, expenses, audit, achievements, transfers,
+      achievementsMissing: this.achievementsMissing, transfersMissing: this.transfersMissing,
+    };
+  }
+
+  // transfers хүснэгт үүсээгүй бол апп эвдрэхгүй
+  async #fetchTransfers() {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await this.sb.from('transfers').select('*').eq('deleted', false)
+        .order('created_at').range(from, from + 999);
+      if (error) {
+        this.transfersMissing = missingTable(error);
+        if (!this.transfersMissing) console.warn('transfers', error);
+        return [];
+      }
+      out.push(...data);
+      if (data.length < 1000) break;
+    }
+    this.transfersMissing = false;
+    return out;
+  }
+
+  async markDone(income, items) {
+    if (this.transfersMissing) throw new Error('Эхлээд Supabase дээр supabase/transfers.sql-ийг ажиллуулна уу');
+    const rows = items.map((t) => ({ id: uuid(), income_id: income.id, account: t.account, amount: t.amount, created_by: this.me.user_id }));
+    const { data, error } = await this.sb.from('transfers').insert(rows).select();
+    if (error) {
+      // Нөгөө хүн түрүүлж дарсан
+      if (error.code === '23505') throw new Error('Аль хэдийн байршуулсан байна');
+      throw error;
+    }
+    await this.#audit('done', describe('transfer', { income, items }), income.id);
+    return data;
+  }
+
+  async undoDone(income, rows) {
+    const { error } = await this.sb.from('transfers')
+      .update({ deleted: true, deleted_by: this.me.user_id, deleted_at: nowISO() }).in('id', rows.map((r) => r.id));
+    if (error) throw error;
+    await this.#audit('undo', describe('transfer', { income, items: rows }), income.id);
   }
 
   // achievements хүснэгт үүсээгүй бол апп эвдрэхгүй
@@ -116,7 +162,7 @@ export class SupabaseStore {
     const { data, error } = await this.sb.from('achievements').select('*').eq('deleted', false)
       .order('date', { ascending: false }).order('created_at', { ascending: false });
     if (error) {
-      this.achievementsMissing = error.code === 'PGRST205' || error.code === '42P01';
+      this.achievementsMissing = missingTable(error);
       if (!this.achievementsMissing) console.warn('achievements', error);
       return [];
     }
@@ -233,6 +279,11 @@ export class SupabaseStore {
         change();
       })
       .subscribe();
+    // Тусдаа суваг: transfers.sql ажиллуулаагүй (хүснэгт байхгүй) үед үндсэн суваг эвдрэхгүй
+    if (this.transferChannel) this.sb.removeChannel(this.transferChannel);
+    this.transferChannel = this.sb.channel('bidnii-sanhuu-transfers')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transfers' }, change)
+      .subscribe();
   }
 }
 
@@ -254,7 +305,7 @@ export class LocalStore {
   #read() {
     let db = null;
     try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch { /* эвдэрсэн эсвэл хандах эрхгүй */ }
-    db = { incomes: [], expenses: [], audit: [], achievements: [], avatars: {}, ...(db || {}) };
+    db = { incomes: [], expenses: [], audit: [], achievements: [], transfers: [], avatars: {}, ...(db || {}) };
     // Профайл зургийг админ бүрт холбоно
     this.admins = this.base.map((a) => ({ ...a, avatar_url: db.avatars[a.user_id] || null }));
     if (this.me) this.me = this.admins.find((a) => a.user_id === this.me.user_id);
@@ -299,6 +350,8 @@ export class LocalStore {
       achievements: db.achievements.filter((r) => !r.deleted)
         .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at)),
       achievementsMissing: false,
+      transfers: db.transfers.filter((r) => !r.deleted),
+      transfersMissing: false,
     };
   }
 
@@ -362,6 +415,30 @@ export class LocalStore {
       const r = db[TABLE[kind]].find((x) => x.id === row.id);
       if (r) Object.assign(r, { deleted: false, deleted_by: null, deleted_at: null });
       this.#audit(db, 'restore', describe(kind, row), row.id);
+    });
+  }
+
+  async markDone(income, items) {
+    return this.#mutate((db) => {
+      const live = db.transfers.filter((r) => !r.deleted && r.income_id === income.id);
+      if (items.some((t) => live.some((r) => r.account === t.account))) throw new Error('Аль хэдийн байршуулсан байна');
+      const rows = items.map((t) => ({
+        id: uuid(), income_id: income.id, account: t.account, amount: t.amount, created_by: this.me.user_id,
+        created_at: nowISO(), deleted: false, deleted_by: null, deleted_at: null,
+      }));
+      db.transfers.push(...rows);
+      this.#audit(db, 'done', describe('transfer', { income, items }), income.id);
+      return rows;
+    });
+  }
+
+  async undoDone(income, rows) {
+    this.#mutate((db) => {
+      const ids = new Set(rows.map((r) => r.id));
+      for (const r of db.transfers) {
+        if (ids.has(r.id)) Object.assign(r, { deleted: true, deleted_by: this.me.user_id, deleted_at: nowISO() });
+      }
+      this.#audit(db, 'undo', describe('transfer', { income, items: rows }), income.id);
     });
   }
 
