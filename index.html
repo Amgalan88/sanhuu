@@ -60,7 +60,10 @@
   <div id="app" hidden>
     <header class="topbar">
       <a class="brand" id="brand" href="./" aria-label="Нүүр хуудас"><img class="brand-coin" src="icons/coin.svg" alt=""> <span class="logo">Бидний <span>санхүү</span></span></a>
-      <button id="who" class="who" type="button" aria-label="Хэрэглэгч"></button>
+      <div class="top-right">
+        <button id="music-btn" class="music-btn" type="button" aria-label="Хөгжим"></button>
+        <button id="who" class="who" type="button" aria-label="Хэрэглэгч"></button>
+      </div>
       <div class="month-nav">
         <button type="button" id="month-prev" class="icon-btn" aria-label="Өмнөх сар">‹</button>
         <select id="month-select" aria-label="Сар сонгох"></select>
@@ -130,6 +133,7 @@
       <section class="view" data-view="more">
         <section class="card" id="profile"></section>
         <section class="card" id="notif-card"></section>
+        <section class="card" id="music-card"></section>
         <section class="card" id="theme-card">
           <h2>🎨 Харагдах байдал</h2>
           <div class="theme-pick" id="theme-seg" role="radiogroup" aria-label="Сэдэв">

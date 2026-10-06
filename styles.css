@@ -182,8 +182,23 @@ h3 { font-size: 13px; color: var(--muted); font-weight: 700; margin: 16px 0 8px;
 .who {
   display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px;
   border-radius: 999px; background: rgba(255, 255, 255, .12); color: #fff; font-weight: 700; font-size: 14px;
-  max-width: 48vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  max-width: 40vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
+.top-right { display: flex; align-items: center; gap: 8px; min-width: 0; justify-self: end; }
+.music-btn {
+  width: 40px; height: 40px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%;
+  background: rgba(255, 255, 255, .12); font-size: 18px; line-height: 1;
+}
+.music-btn[aria-pressed="true"] { animation: note-bob 2.6s ease-in-out infinite; }
+.music-btn.off { opacity: .7; }
+@keyframes note-bob { 50% { transform: translateY(-2px) rotate(-8deg); } }
+@media (max-width: 420px) {
+  .who { padding: 0 7px; }
+  .who > span:not(.av) { display: none; } /* зөвхөн профайл зураг — 🎵 товчинд зай */
+}
+.vol-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.vol-row[hidden] { display: none; }
+.vol-row input { flex: 1; accent-color: var(--gold-fill); min-height: 32px; }
 .month-nav { grid-column: 1 / -1; display: grid; grid-template-columns: 44px 1fr 44px; gap: 6px; }
 .month-nav select {
   min-height: 44px; border-radius: 12px; border: 0; padding: 0 12px; font-weight: 700; font-size: 16px;

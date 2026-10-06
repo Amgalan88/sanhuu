@@ -11,6 +11,7 @@ import { celebrate, pick } from './celebrate.js';
 import { achievementImages } from './image.js';
 import { cropAvatar } from './cropper.js';
 import { registerSW, pushState, enablePush, disablePush } from './push.js';
+import { initMusic, musicOn, musicPlaying, musicVolume, onMusicChange, setMusicOn, toggleMusic, setMusicVolume } from './music.js';
 
 // ============================================================
 // Туслах
@@ -84,6 +85,8 @@ boot();
 
 async function boot() {
   applyTheme(getTheme());
+  initMusic(); // анхны товшилтоор аяархан хөгжим эхэлнэ
+  onMusicChange(renderMusic);
   registerSW(); // push мэдэгдэл, апп болгон суулгах
   S.store = SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStore();
   try {
@@ -147,6 +150,7 @@ async function enterApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
   renderWho();
+  renderMusic();
 
   if (!started) {
     started = true;
@@ -1110,6 +1114,32 @@ async function pushAction(fn, okMsg) {
   renderNotif();
 }
 
+// ---------- Хөгжим ----------
+function renderMusic() {
+  const on = musicOn();
+  const btn = $('#music-btn');
+  btn.textContent = on ? '🎵' : '🔇';
+  btn.classList.toggle('off', !on);
+  btn.setAttribute('aria-pressed', String(on && musicPlaying()));
+  btn.title = on ? 'Хөгжим унтраах' : 'Хөгжим асаах';
+
+  const box = $('#music-card');
+  if (!box || !S.me) return;
+  const vol = Math.round(musicVolume() * 100);
+  // Гулсуулж байх үед дахин зурахгүй (хуруу алдагдана)
+  if (box.contains(document.activeElement) && document.activeElement.type === 'range') return;
+  box.innerHTML = `
+    <h2>🎵 Хөгжим</h2>
+    <div class="notif-row"><b>${on ? (musicPlaying() ? '🎶 Тоглож байна' : '🎵 Асаалттай · дэлгэц дээр товшоод эхэлнэ') : '🔇 Унтраалттай'}</b></div>
+    <label class="vol-row" ${on ? '' : 'hidden'}>
+      <span aria-hidden="true">🔈</span>
+      <input type="range" id="music-vol" min="0" max="100" step="5" value="${vol}" aria-label="Дууны хэмжээ">
+      <span aria-hidden="true">🔊</span>
+    </label>
+    <div class="btn-row"><button type="button" class="btn block ${on ? '' : 'primary'}" id="music-toggle">${on ? '🔇 Хөгжим унтраах' : '🎵 Хөгжим асаах'}</button></div>
+    <p class="note">Апп нээхэд аяархан хонхон аялгуу эгшиглэнэ. 📱 iPhone дуугүй (silent) горимд байвал сонсогдохгүй.</p>`;
+}
+
 // ---------- Бусад ----------
 function renderMore() {
   const demo = S.store.mode === 'demo';
@@ -1133,6 +1163,7 @@ function renderMore() {
     <div class="btn-row"><button type="button" class="btn block" id="logout">🚪 ${demo ? 'Хэрэглэгч солих' : 'Гарах'}</button></div>`;
 
   renderNotif();
+  renderMusic();
 
   $('#rules').innerHTML = `
     <h2>📐 Хуваарилалтын дүрэм</h2>
@@ -1278,6 +1309,8 @@ function wireGlobal() {
   addEventListener('hashchange', () => setView(location.hash.slice(1) || 'home', false));
   $('#fab').addEventListener('click', goQuick);
   $('#who').addEventListener('click', () => setView('more'));
+  $('#music-btn').addEventListener('click', toggleMusic);
+  document.addEventListener('input', (e) => { if (e.target.id === 'music-vol') setMusicVolume(e.target.value / 100); });
   $('#brand').addEventListener('click', (e) => { e.preventDefault(); setView('home'); });
 
   new IntersectionObserver(([e]) => { quickVisible = e.isIntersecting; updateFab(); }, { threshold: 0.15 }).observe($('#quick'));
@@ -1321,6 +1354,7 @@ function wireGlobal() {
     const cm = e.target.closest('[data-coin-mode]');
     if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
 
+    if (e.target.closest('#music-toggle')) return setMusicOn(!musicOn());
     if (e.target.closest('#audit-more')) { S.auditLimit += 50; renderAudit(); return; }
     if (e.target.closest('#push-on')) return pushAction(() => enablePush(S.store), '🔔 Мэдэгдэл асаалаа!');
     if (e.target.closest('#push-off')) return pushAction(() => disablePush(S.store), '🔕 Мэдэгдэл унтарлаа');
