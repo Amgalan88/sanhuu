@@ -260,3 +260,42 @@ test('describe: байршуулсан даалгаврын бүртгэл', () 
   assert.equal(describeRow('transfer', { income, items: [{ account: 'travel', amount: 25_000 }, { account: 'goal', amount: 25_000 }] }),
     '✈️ 25,000₮, 🎯 25,000₮ · 💼 Цалин +500,000₮-ийн хуваарилалт');
 });
+
+test('хуримтлалын данснаас гаргасан зарлага тухайн дансаас хасагдана, өрхөд нөлөөлөхгүй', () => {
+  const incomes = [
+    { id: 'i1', date: '2026-07-05', amount: 4_000_000 },
+    { id: 'i2', date: '2026-08-05', amount: 4_000_000 },
+  ];
+  const expenses = [
+    { id: 'e1', date: '2026-07-10', amount: 1_000_000, category: 'food' },                      // хуучин мөр: account байхгүй → өрх
+    { id: 'e2', date: '2026-07-20', amount: 150_000, category: 'transport', account: 'travel' },
+    { id: 'e3', date: '2026-08-02', amount: 300_000, category: 'health', account: 'risk' },
+    { id: 'e4', date: '2026-08-03', amount: 50_000, category: 'other', account: 'household' },
+    { id: 'e5', date: '2026-08-04', amount: 999_000, category: 'other', account: 'savings', deleted: true },
+  ];
+  const [jul, aug] = buildLedger(incomes, expenses);
+
+  assert.equal(jul.spent, 1_000_000);
+  assert.equal(jul.householdLeft, 1_400_000);
+  assert.deepEqual(jul.withdrawn, { savings: 0, travel: 150_000, goal: 0, risk: 0 });
+  assert.equal(jul.fundSpent, 150_000);
+  assert.deepEqual(jul.balances, { household: 1_400_000, savings: 400_000, travel: 50_000, goal: 200_000, risk: 800_000 });
+
+  assert.equal(aug.spent, 50_000);
+  assert.equal(aug.householdLeft, 1_400_000 + 2_400_000 - 50_000);
+  assert.equal(aug.fundSpent, 300_000);
+  assert.deepEqual(aug.balances, { household: 3_750_000, savings: 800_000, travel: 250_000, goal: 400_000, risk: 1_300_000 });
+});
+
+test('хуримтлалын данс хасах руу орж болно (хэтэрсэн)', () => {
+  const [m] = buildLedger([{ id: 'i', date: '2026-07-01', amount: 1_000_000 }],
+    [{ id: 'e', date: '2026-07-02', amount: 80_000, category: 'other', account: 'travel' }]);
+  assert.equal(m.balances.travel, 50_000 - 80_000);
+  assert.equal(m.householdLeft, 600_000);
+});
+
+test('describe: хуримтлалын данснаас гаргасан зарлага', () => {
+  assert.equal(describeRow('expense', { amount: 450_000, category: 'transport', account: 'travel', note: 'Тийз' }),
+    '🚗 −450,000₮ зарлага · ✈️ Аяллын данснаас · Тээвэр · Тийз');
+  assert.equal(describeRow('expense', { amount: 45_000, category: 'food', account: 'household', note: '' }), '🛒 −45,000₮ зарлага · Хүнс');
+});

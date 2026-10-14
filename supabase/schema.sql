@@ -40,6 +40,8 @@ create table if not exists public.expenses (
   date       date not null default current_date,
   amount     integer not null check (amount > 0),
   category   text not null check (category in ('food','housing','transport','health','kids','comm','other')),
+  account    text not null default 'household'                -- аль данснаас (expense-accounts.sql)
+             check (account in ('household','savings','travel','goal','risk')),
   note       text not null default '',
   created_by uuid not null default auth.uid() references public.admins(user_id),
   created_at timestamptz not null default now(),
@@ -129,5 +131,5 @@ end $$;
 
 -- ============================================================
 -- Дараа нь supabase/achievements.sql, supabase/profile.sql, supabase/push.sql,
--- supabase/transfers.sql-ийг дарааллаар нь ажиллуулна.
+-- supabase/transfers.sql, supabase/expense-accounts.sql-ийг дарааллаар нь ажиллуулна.
 -- ============================================================

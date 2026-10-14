@@ -1,5 +1,5 @@
 import {
-  TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf,
+  TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf, expenseAccount,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
   fmt, fmtNum, fmtShort, fmtSigned, allocDelta, incomeSplits, MINUS, parseAmount, describe,
 } from './finance.js';
@@ -55,7 +55,7 @@ const S = {
   view: 'home',
   filter: 'all',
   auditLimit: 30,
-  q: { kind: 'expense', amount: 0, cat: null },
+  q: { kind: 'expense', amount: 0, cat: null, acc: 'household' }, // acc: зарлагыг аль данснаас гаргах
   saving: false,
   coins: null,
   coinMode: 'total',
@@ -211,6 +211,7 @@ function buildQuick() {
     if (S.q.kind === b.dataset.kind) return;
     S.q.kind = b.dataset.kind;
     S.q.cat = S.q.kind === 'income' ? 'salary' : null;
+    S.q.acc = 'household';
     S.q.amount = 0;
     amount.value = '';
     renderQuickControls();
@@ -240,6 +241,13 @@ function buildQuick() {
     const b = e.target.closest('button');
     if (!b) return;
     S.q.cat = b.dataset.cat;
+    updateQuick();
+  });
+
+  $('#accs').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    S.q.acc = b.dataset.acc;
     updateQuick();
   });
 
@@ -279,12 +287,18 @@ function renderQuickControls() {
     <button type="button" class="cat" data-cat="${c.key}" aria-pressed="false">
       <span class="e">${c.emoji}</span>${esc(c.name)}
     </button>`).join('');
+  // Зарлагыг аль данснаас гаргах: өрх (үндсэн) эсвэл хуримтлалын 4 данс
+  $('#accs').hidden = !isExp;
+  $('#accs').innerHTML = isExp ? `<span class="accs-label">Аль данснаас:</span>${ACCOUNTS.map((a) => `
+    <button type="button" class="acc" data-acc="${a.key}" style="--c:${a.color}" aria-pressed="false">${a.emoji} ${esc(a.short)}</button>`).join('')}` : '';
 }
 
 function updateQuick() {
-  const { kind, amount, cat } = S.q;
+  const { kind, amount, cat, acc } = S.q;
   const isExp = kind === 'expense';
+  const fund = isExp && acc !== 'household'; // хуримтлалын данснаас гаргах зарлага
   $$('#cats .cat').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cat === cat)));
+  $$('#accs .acc').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.acc === acc)));
 
   const sign = $('#amount-sign');
   sign.textContent = isExp ? MINUS : '+';
@@ -295,7 +309,7 @@ function updateQuick() {
   btn.classList.toggle('idle', !ready);
   btn.textContent = !amount ? '✍️ Дүнгээ оруулна уу'
     : !cat ? '👆 Ангиллаа сонгоно уу'
-    : `✅ ${fmtSigned(amount, kind)} ${isExp ? 'зарлага' : 'орлого'} хадгалах`;
+    : `✅ ${fmtSigned(amount, kind)} ${isExp ? 'зарлага' : 'орлого'}${fund ? ` · ${ACC[acc].emoji}` : ''} хадгалах`;
 
   // Урьдчилсан харагдац
   const date = $('#date').value || todayISO();
@@ -303,7 +317,22 @@ function updateQuick() {
   const p = $('#preview');
   let text = '', cls = '';
 
-  if (isExp) {
+  if (fund) {
+    const hypo = amount > 0 ? [...S.expenses, { date, amount, account: acc }] : S.expenses;
+    const L = buildLedger(S.incomes, hypo, { toMonth: m });
+    const left = (L.find((x) => x.month === m) || emptyMonth(m)).balances[acc];
+    const a = ACC[acc];
+    if (!amount) {
+      text = `${a.emoji} ${a.name} дансанд одоо ${fmt(left)} байна`;
+      cls = left < 0 ? 'bad' : '';
+    } else if (left < 0) {
+      text = `⚠️ ${a.emoji} ${a.name} дансны үлдэгдэл хүрэлцэхгүй — ${fmt(-left)} дутна`;
+      cls = 'bad';
+    } else {
+      text = `Хадгалсны дараа ${a.emoji} ${a.name} дансанд ${fmt(left)} үлдэнэ`;
+      cls = 'ok';
+    }
+  } else if (isExp) {
     const hypo = amount > 0 ? [...S.expenses, { date, amount }] : S.expenses;
     const L = buildLedger(S.incomes, hypo, { toMonth: m });
     const r = L.find((x) => x.month === m) || emptyMonth(m);
@@ -347,13 +376,15 @@ function shake(el) {
 
 async function save() {
   if (S.saving) return;
-  const { kind, amount, cat } = S.q;
+  const { kind, amount, cat, acc } = S.q;
   if (!amount) { shake($('.amount-wrap')); $('#amount').focus(); return; }
   if (!cat) { shake($('#cats')); return; }
 
   const date = $('#date').value || todayISO();
   const note = $('#note').value.trim().slice(0, 200);
-  const fields = kind === 'expense' ? { date, amount, category: cat, note } : { date, amount, source: cat, note };
+  // Өрхийн зарлагад account багана илгээхгүй — expense-accounts.sql ажиллуулаагүй сан ч ажиллана
+  const fields = kind === 'income' ? { date, amount, source: cat, note }
+    : acc === 'household' ? { date, amount, category: cat, note } : { date, amount, category: cat, note, account: acc };
   const m = monthKey(date);
   const incomeBefore = S.incomes.filter((r) => monthKey(r.date) === m).reduce((s, r) => s + r.amount, 0);
 
@@ -365,7 +396,7 @@ async function save() {
     S.audit.unshift({ id: `tmp-${row.id}`, at: new Date().toISOString(), user_id: S.me.user_id, action: 'add', text: describe(kind, row), ref_id: row.id });
 
     S.q.amount = 0;
-    if (kind === 'expense') S.q.cat = null;
+    if (kind === 'expense') { S.q.cat = null; S.q.acc = 'household'; }
     $('#amount').value = '';
     $('#note').value = '';
     // Утсан дээр гарыг хааж мэдэгдлийг харагдуулна; компьютер дээр дараагийн бүртгэлд бэлэн
@@ -377,7 +408,8 @@ async function save() {
 
     const undo = () => undoAdd(kind, row);
     if (kind === 'expense') {
-      toast(`${categoryOf(cat).emoji} ${fmtSigned(amount, 'expense')} хадгаллаа. ${pick(EXPENSE_CHEERS)}`, { undo });
+      const from = acc === 'household' ? '' : ` ${ACC[acc].emoji} ${ACC[acc].from}`;
+      toast(`${categoryOf(cat).emoji} ${fmtSigned(amount, 'expense')}${from} хадгаллаа. ${pick(EXPENSE_CHEERS)}`, { undo });
     } else {
       S.fresh = row.id;
       renderTasks();
@@ -490,6 +522,7 @@ function renderSummary() {
       <ul class="legend">
         ${ACCOUNTS.map((a) => `<li style="--c:${a.color}"><span class="dot"></span><span>${a.emoji} ${a.name}<span class="pct">${a.pct}%</span></span><b class="num">${fmt(r.alloc[a.key])}</b></li>`).join('')}
         <li><span></span><span>🌱 Өмнөх сараас шилжсэн</span><b class="num ${r.carryIn > 0 ? 'pos' : r.carryIn < 0 ? 'neg' : ''}">${signed(r.carryIn)}</b></li>
+        ${SAVING_KEYS.filter((k) => r.withdrawn[k]).map((k) => `<li><span></span><span>💸 ${ACC[k].emoji} ${ACC[k].from} зарлага</span><b class="num">${fmtSigned(r.withdrawn[k], 'expense')}</b></li>`).join('')}
       </ul>
       ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmtNum(r.alloc[k] - (TARGET * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
     </details>`;
@@ -514,8 +547,9 @@ function renderOverview() {
     <div class="ov-saved">
       <div class="ov-saved-head"><span>💰 Хуримтлал</span><b class="num">${fmt(saved)}</b></div>
       <div class="ov-chips">
-        ${SAVING_KEYS.map((k) => `<span class="ov-chip" style="--c:${ACC[k].color}" title="${ACC[k].name}: ${fmt(r.balances[k])}">${ACC[k].emoji}<b>${fmtShort(r.balances[k])}</b></span>`).join('')}
+        ${SAVING_KEYS.map((k) => `<span class="ov-chip" style="--c:${ACC[k].color}" title="${ACC[k].name}: ${fmt(r.balances[k])}">${ACC[k].emoji}<b class="${r.balances[k] < 0 ? 'neg' : ''}">${fmtShort(r.balances[k])}</b></span>`).join('')}
       </div>
+      ${r.fundSpent ? `<small class="ov-sub">💸 Энэ сард хуримтлалаас ${fmtSigned(r.fundSpent, 'expense')} зарцуулсан</small>` : ''}
     </div>`;
 }
 
@@ -683,6 +717,8 @@ function renderBreakdown() {
   const by = EXPENSE_CATEGORIES.map((c) => ({ ...c, sum: rows.filter((r) => r.category === c.key).reduce((s, r) => s + r.amount, 0) }))
     .filter((c) => c.sum > 0).sort((a, b) => b.sum - a.sum);
   const max = Math.max(1, ...by.map((c) => c.sum));
+  const byAcc = ACCOUNTS.map((a) => ({ ...a, sum: rows.filter((r) => expenseAccount(r) === a.key).reduce((s, r) => s + r.amount, 0) }))
+    .filter((a) => a.sum > 0);
 
   $('#breakdown').innerHTML = `
     <div class="card-head"><h2>📊 Ангиллын задаргаа</h2><span class="pill">${monthLabel(S.month, false)}</span></div>
@@ -695,19 +731,23 @@ function renderBreakdown() {
           <div class="bar"><i style="width:${(c.sum / max) * 100}%"></i></div>
         </div>
       </div>`).join('')}</div>
-      <div class="between" style="margin-top:12px"><span>Нийт</span><b class="num" style="color:var(--text)">${fmtSigned(total, 'expense')}</b></div>`
+      <div class="between" style="margin-top:12px"><span>Нийт</span><b class="num" style="color:var(--text)">${fmtSigned(total, 'expense')}</b></div>
+      ${byAcc.length > 1 || byAcc[0]?.key !== 'household' ? `<div class="acc-split">${byAcc.map((a) => `
+        <div class="between"><span>${a.emoji} ${a.from}</span><span class="num">${fmtSigned(a.sum, 'expense')}</span></div>`).join('')}</div>` : ''}`
     : '<p class="empty">Энэ сард зарлага алга 🌿</p>'}`;
 }
 
 function txRow(kind, r) {
   const c = kind === 'expense' ? categoryOf(r.category) : sourceOf(r.source);
   const a = adminOf(r.created_by);
+  const acc = kind === 'expense' ? expenseAccount(r) : 'household';
+  const tag = acc === 'household' ? '' : `<span class="acc-tag" style="--c:${ACC[acc].color}">${ACC[acc].emoji} ${ACC[acc].from}</span>`;
   return `
     <li class="tx">
       <span class="tx-emoji">${c.emoji}</span>
       <div class="tx-main">
         <div class="tx-title">${esc(r.note || c.name)}</div>
-        <div class="tx-sub">${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)} бүртгэсэн</div>
+        <div class="tx-sub">${tag}${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)} бүртгэсэн</div>
       </div>
       <div class="tx-right">
         <b class="tx-amt num ${kind === 'income' ? 'pos' : ''}">${fmtSigned(r.amount, kind)}</b>
@@ -745,7 +785,7 @@ function renderHistory() {
         <thead><tr>
           <th>Сар</th><th>Орлого</th><th>Илүүдэл</th>
           ${ACCOUNTS.map((a) => `<th title="${a.name}">${a.emoji} ${a.short}</th>`).join('')}
-          <th>Зарлага</th><th>Шилжсэн</th>
+          <th>Зарлага</th><th title="Хуримтлалын данснаас гаргасан зарлага">💸 Сангаас</th><th>Шилжсэн</th>
         </tr></thead>
         <tbody>
           ${rows.map((r) => `
@@ -755,17 +795,19 @@ function renderHistory() {
               <td>${r.excess ? `+${fmtNum(r.excess)}` : '—'}</td>
               ${ACCOUNTS.map((a) => `<td>${fmtNum(r.alloc[a.key])}</td>`).join('')}
               <td>${r.spent ? `${MINUS}${fmtNum(r.spent)}` : '0'}</td>
+              <td title="${SAVING_KEYS.filter((k) => r.withdrawn[k]).map((k) => `${ACC[k].emoji} ${MINUS}${fmtNum(r.withdrawn[k])}`).join(' · ')}">${r.fundSpent ? `${MINUS}${fmtNum(r.fundSpent)}` : '—'}</td>
               <td class="${r.householdLeft < 0 ? 'neg' : 'pos'}">${r.householdLeft > 0 ? '+' : ''}${fmtNum(r.householdLeft)}</td>
             </tr>`).join('')}
         </tbody>
         ${last ? `<tfoot><tr class="total">
           <td>Үлдэгдэл</td><td></td><td></td>
           ${ACCOUNTS.map((a) => `<td class="${last.balances[a.key] < 0 ? 'neg' : ''}">${fmtNum(last.balances[a.key])}</td>`).join('')}
-          <td></td><td></td>
+          <td></td><td></td><td></td>
         </tr></tfoot>` : ''}
       </table>
     </div>
-    <p class="note">“Шилжсэн” — өрхийн дансанд сарын эцэст үлдсэн (хасах бол хэтэрсэн) дүн. Энэ нь дараа сарын өрхийн дансанд нэмэгдэнэ.</p>`
+    <p class="note">“Шилжсэн” — өрхийн дансанд сарын эцэст үлдсэн (хасах бол хэтэрсэн) дүн. Энэ нь дараа сарын өрхийн дансанд нэмэгдэнэ.</p>
+    <p class="note">“Зарлага” — өрхийн дансны зарлага. “💸 Сангаас” — хадгаламж, аялал, зорилтот, эрсдэлийн данснаас гаргасан зарлага; “Үлдэгдэл” мөрөнд хасагдсан.</p>`
     : '<p class="empty">Түүх хоосон байна</p>'}`;
 }
 
@@ -1143,7 +1185,8 @@ function renderMore() {
     <p class="note">• <b>4 саяас илүү</b> бол илүүдлийг өрхөөс бусад 4 дансанд <b>эзлэх хувиар нь</b> (10:5:5:20 → 25% / 12.5% / 12.5% / 50%) нэмнэ.
       Жишээ: 600,000₮ илүүдэл → 🏦 +150,000, ✈️ +75,000, 🎯 +75,000, 🛡️ +300,000.</p>
     <p class="note">• <b>4 саяас бага</b> бол дээрх хувиар хуваана. Бутархай үлдэгдэл 🛡️ эрсдэлийн санд.</p>
-    <p class="note">• 🏠 Өрхийн дансны үлдэгдэл дараа сард шилжинэ, хэтэрсэн бол дараа сараас хасагдана. Бусад 4 данс хуримтлагдана.</p>`;
+    <p class="note">• 🏠 Өрхийн дансны үлдэгдэл дараа сард шилжинэ, хэтэрсэн бол дараа сараас хасагдана. Бусад 4 данс хуримтлагдана.</p>
+    <p class="note">• 💸 Зарлага бүртгэхдээ <b>“Аль данснаас”</b>-ыг сонгоно. 🏦 ✈️ 🎯 🛡️ данснаас гаргасан зарлага тухайн дансны хуримтлалаас хасагдана, өрхийн дансанд нөлөөлөхгүй.</p>`;
 
   $$('#theme-seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeSet === getTheme())));
 }
