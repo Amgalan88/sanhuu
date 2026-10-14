@@ -25,6 +25,9 @@
 - Бутархай үлдэгдэл 🛡️ эрсдэлийн санд орно.
 - 🏠 Өрхийн дансны сарын эцсийн үлдэгдэл дараа сарын өрхийн дансанд шилжинэ
   (хэтэрсэн бол дараа сараас хасагдана). Бусад 4 данс хуримтлагдана.
+- 💸 Зарлага бүртгэхдээ **“Аль данснаас”**-ыг сонгоно (үндсэн нь 🏠 өрх). 🏦 ✈️ 🎯 🛡️ данснаас
+  гаргасан зарлага (жишээ нь аяллын тийз, эмнэлгийн яаралтай зардал) тухайн дансны хуримтлалаас
+  хасагдана, өрхийн дансанд нөлөөлөхгүй. Үлдэгдэл хүрэлцэхгүй бол урьдчилан анхааруулна.
 - Хуваарилалтыг хадгалдаггүй — орлого/зарлагаас үргэлж дахин тооцоолно
   ([js/finance.js](js/finance.js)).
 
@@ -50,6 +53,7 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    - [supabase/profile.sql](supabase/profile.sql) — профайл зураг (хүн бүр зөвхөн өөрийнхөө зургийг солино)
    - [supabase/push.sql](supabase/push.sql) — push мэдэгдлийн төхөөрөмжүүд
    - [supabase/transfers.sql](supabase/transfers.sql) — хуваарилалтын даалгавар (“✅ Байршуулсан” тэмдэглэл)
+   - [supabase/expense-accounts.sql](supabase/expense-accounts.sql) — зарлагыг хуримтлалын данснаас гаргах (`expenses.account`)
 3. **Authentication → Sign In / Providers → Email**:
    - **Allow new users to sign up**-ийг **унтраана** (гадны хүн бүртгүүлэхгүй).
    - Хүсвэл **Confirm email**-ийг унтраана.
@@ -156,6 +160,7 @@ supabase/achievements.sql  амжилтын хүснэгт + зургийн са
 supabase/profile.sql    профайл зураг
 supabase/push.sql       push мэдэгдлийн төхөөрөмжүүд
 supabase/transfers.sql  хуваарилалтын даалгавар: байршуулсан тэмдэглэл
+supabase/expense-accounts.sql  зарлага аль данснаас гарсан (expenses.account)
 supabase/functions/notify/  push илгээх Edge Function
 sw.js                   service worker (push)
 js/push.js              мэдэгдэл асаах/унтраах

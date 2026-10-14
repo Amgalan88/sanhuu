@@ -4,11 +4,11 @@
 export const TARGET = 4_000_000;
 
 export const ACCOUNTS = [
-  { key: 'household', name: 'Өрхийн хэрэглээ', short: 'Өрх',       emoji: '🏠', pct: 60, color: '#f2c14e' },
-  { key: 'savings',   name: 'Хадгаламж',       short: 'Хадгаламж', emoji: '🏦', pct: 10, color: '#4f8cff' },
-  { key: 'travel',    name: 'Аялал',           short: 'Аялал',     emoji: '✈️', pct: 5,  color: '#2ec4b6' },
-  { key: 'goal',      name: 'Зорилтот',        short: 'Зорилт',    emoji: '🎯', pct: 5,  color: '#b388ff' },
-  { key: 'risk',      name: 'Эрсдэлийн сан',   short: 'Эрсдэл',    emoji: '🛡️', pct: 20, color: '#ff7a59' },
+  { key: 'household', name: 'Өрхийн хэрэглээ', short: 'Өрх',       emoji: '🏠', pct: 60, color: '#f2c14e', from: 'Өрхийн данснаас' },
+  { key: 'savings',   name: 'Хадгаламж',       short: 'Хадгаламж', emoji: '🏦', pct: 10, color: '#4f8cff', from: 'Хадгаламжаас' },
+  { key: 'travel',    name: 'Аялал',           short: 'Аялал',     emoji: '✈️', pct: 5,  color: '#2ec4b6', from: 'Аяллын данснаас' },
+  { key: 'goal',      name: 'Зорилтот',        short: 'Зорилт',    emoji: '🎯', pct: 5,  color: '#b388ff', from: 'Зорилтот данснаас' },
+  { key: 'risk',      name: 'Эрсдэлийн сан',   short: 'Эрсдэл',    emoji: '🛡️', pct: 20, color: '#ff7a59', from: 'Эрсдэлийн сангаас' },
 ];
 
 export const SAVING_KEYS = ['savings', 'travel', 'goal', 'risk'];
@@ -29,6 +29,9 @@ export const INCOME_SOURCES = [
   { key: 'side',   emoji: '🧑‍💻', name: 'Нэмэлт орлого' },
   { key: 'other',  emoji: '💵', name: 'Бусад' },
 ];
+
+/** Зарлагыг аль данснаас гаргасан: хуучин мөрөнд account байхгүй бол өрхийн данс. */
+export const expenseAccount = (r) => (SAVING_KEYS.includes(r?.account) ? r.account : 'household');
 
 export const categoryOf = (key) => EXPENSE_CATEGORIES.find((c) => c.key === key) || EXPENSE_CATEGORIES.at(-1);
 export const accountOf = (key) => ACCOUNTS.find((a) => a.key === key) || ACCOUNTS[0];
@@ -92,7 +95,8 @@ export function monthLabel(key, withYear = true) {
 /**
  * Сар бүрийн хуваарилалт, өрхийн дансны шилжилт, хуримтлалыг тооцоолно.
  * Өрхийн дансны үлдэгдэл (хасах байж болно) дараа сарын өрхийн дансанд шилжинэ.
- * Бусад 4 данс сар бүр хуримтлагдана.
+ * Бусад 4 данс сар бүр хуримтлагдана; тэдгээрээс гаргасан зарлага (account) тухайн дансаас хасагдана.
+ * spent — зөвхөн өрхийн дансны зарлага, withdrawn — хуримтлалын данс бүрээс гаргасан зарлага.
  */
 export function buildLedger(incomes, expenses, { toMonth } = {}) {
   const inc = incomes.filter((r) => !r.deleted);
@@ -105,7 +109,8 @@ export function buildLedger(incomes, expenses, { toMonth } = {}) {
   const last = keys.reduce((a, b) => (a > b ? a : b));
 
   const incomeBy = groupSum(inc);
-  const spentBy = groupSum(exp);
+  const spentBy = groupSum(exp.filter((r) => expenseAccount(r) === 'household'));
+  const withdrawnBy = Object.fromEntries(SAVING_KEYS.map((k) => [k, groupSum(exp.filter((r) => expenseAccount(r) === k))]));
 
   let carry = 0;
   const saved = Object.fromEntries(SAVING_KEYS.map((k) => [k, 0]));
@@ -118,7 +123,9 @@ export function buildLedger(incomes, expenses, { toMonth } = {}) {
     const available = alloc.household + carryIn;
     const householdLeft = available - spent;
     carry = householdLeft;
-    for (const k of SAVING_KEYS) saved[k] += alloc[k];
+    const withdrawn = Object.fromEntries(SAVING_KEYS.map((k) => [k, withdrawnBy[k][month] || 0]));
+    const fundSpent = SAVING_KEYS.reduce((s, k) => s + withdrawn[k], 0);
+    for (const k of SAVING_KEYS) saved[k] += alloc[k] - withdrawn[k];
 
     return {
       month,
@@ -129,6 +136,8 @@ export function buildLedger(incomes, expenses, { toMonth } = {}) {
       carryIn,
       available,
       householdLeft,
+      withdrawn,
+      fundSpent,
       balances: { household: householdLeft, ...saved },
     };
   });
@@ -147,6 +156,7 @@ export function emptyMonth(month) {
   const alloc = allocate(0);
   return {
     month, income: 0, spent: 0, alloc, excess: 0, carryIn: 0, available: 0, householdLeft: 0,
+    withdrawn: { savings: 0, travel: 0, goal: 0, risk: 0 }, fundSpent: 0,
     balances: { household: 0, savings: 0, travel: 0, goal: 0, risk: 0 },
   };
 }
@@ -230,5 +240,7 @@ export function describe(kind, r) {
     return `${s.emoji} ${fmtSigned(r.amount, 'income')} орлого · ${s.name}${r.note ? ` · ${r.note}` : ''}`;
   }
   const c = categoryOf(r.category);
-  return `${c.emoji} ${fmtSigned(r.amount, 'expense')} зарлага · ${c.name}${r.note ? ` · ${r.note}` : ''}`;
+  const acc = expenseAccount(r);
+  const from = acc === 'household' ? '' : ` · ${accountOf(acc).emoji} ${accountOf(acc).from}`;
+  return `${c.emoji} ${fmtSigned(r.amount, 'expense')} зарлага${from} · ${c.name}${r.note ? ` · ${r.note}` : ''}`;
 }
