@@ -824,36 +824,31 @@ function renderHistory() {
   const rows = S.ledger.filter((r) => r.month <= cur || r.income || r.spent).slice().reverse();
   const last = S.ledger.filter((r) => r.month <= (S.month > cur ? S.month : cur)).at(-1);
   $('#history').innerHTML = `
-    <div class="card-head"><h2>📚 Сар бүрийн хуваарилалт</h2><span class="hint">← гүйлгэнэ →</span></div>
+    <h2>📚 Сар бүрийн хуваарилалт</h2>
     ${rows.length ? `
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Сар</th><th>Орлого</th><th>Илүүдэл</th>
-          ${ACCOUNTS.map((a) => `<th title="${a.name}">${a.emoji} ${a.short}</th>`).join('')}
-          <th>Зарлага</th><th title="Хуримтлалын данснаас гаргасан зарлага">💸 Сангаас</th><th>Шилжсэн</th>
-        </tr></thead>
-        <tbody>
-          ${rows.map((r) => `
-            <tr class="${r.month === S.month ? 'sel' : ''}">
-              <td>${monthLabel(r.month, r.month.slice(0, 4) !== cur.slice(0, 4))}</td>
-              <td class="${r.income ? 'pos' : ''}">${r.income ? `+${fmtNum(r.income)}` : '0'}</td>
-              <td>${r.excess ? `+${fmtNum(r.excess)}` : '—'}</td>
-              ${ACCOUNTS.map((a) => `<td>${fmtNum(r.alloc[a.key])}</td>`).join('')}
-              <td>${r.spent ? `${MINUS}${fmtNum(r.spent)}` : '0'}</td>
-              <td title="${SAVING_KEYS.filter((k) => r.withdrawn[k]).map((k) => `${ACC[k].emoji} ${MINUS}${fmtNum(r.withdrawn[k])}`).join(' · ')}">${r.fundSpent ? `${MINUS}${fmtNum(r.fundSpent)}` : '—'}</td>
-              <td class="${r.householdLeft < 0 ? 'neg' : 'pos'}">${r.householdLeft > 0 ? '+' : ''}${fmtNum(r.householdLeft)}</td>
-            </tr>`).join('')}
-        </tbody>
-        ${last ? `<tfoot><tr class="total">
-          <td>Үлдэгдэл</td><td></td><td></td>
-          ${ACCOUNTS.map((a) => `<td class="${last.balances[a.key] < 0 ? 'neg' : ''}">${fmtNum(last.balances[a.key])}</td>`).join('')}
-          <td></td><td></td><td></td>
-        </tr></tfoot>` : ''}
-      </table>
-    </div>
-    <p class="note">“Шилжсэн” — өрхийн дансанд сарын эцэст үлдсэн (хасах бол хэтэрсэн) дүн. Энэ нь дараа сарын өрхийн дансанд нэмэгдэнэ.</p>
-    <p class="note">“Зарлага” — өрхийн дансны зарлага. “💸 Сангаас” — зорилтот, эрсдэлийн данснаас гаргасан зарлага; “Үлдэгдэл” мөрөнд хасагдсан.</p>`
+    ${last ? `<div class="hist-total">
+      <span>Одоогийн үлдэгдэл</span>
+      ${ACCOUNTS.map((a) => `<b class="num ${last.balances[a.key] < 0 ? 'neg' : ''}" title="${a.name}">${a.emoji} ${fmtShort(last.balances[a.key])}</b>`).join('')}
+    </div>` : ''}
+    <ul class="hist">
+      ${rows.map((r) => `
+        <li class="${r.month === S.month ? 'sel' : ''}">
+          <div class="h-top">
+            <span>${monthLabel(r.month, r.month.slice(0, 4) !== cur.slice(0, 4))}</span>
+            <b class="num ${r.income ? 'pos' : 'muted'}">${r.income ? `+${fmtNum(r.income)}` : '0'}</b>
+          </div>
+          <div class="h-sub">
+            ${ACCOUNTS.map((a) => `<span title="${a.name}">${a.emoji} ${fmtNum(r.alloc[a.key])}</span>`).join('')}
+            ${r.excess ? `<span>🎉 +${fmtNum(r.excess)}</span>` : ''}
+          </div>
+          <div class="h-sub">
+            <span>🧾 ${r.spent ? `${MINUS}${fmtNum(r.spent)}` : '0'}</span>
+            ${r.fundSpent ? `<span>💸 ${MINUS}${fmtNum(r.fundSpent)}</span>` : ''}
+            <span class="${r.householdLeft < 0 ? 'neg' : 'pos'}">🌱 ${r.householdLeft > 0 ? '+' : ''}${fmtNum(r.householdLeft)}</span>
+          </div>
+        </li>`).join('')}
+    </ul>
+    <p class="note">🧾 өрхийн зарлага · 💸 зорилтот/эрсдэлийн данснаас гаргасан · 🌱 сарын эцэст өрхийн дансанд үлдсэн (дараа сард шилжинэ).</p>`
     : '<p class="empty">Түүх хоосон байна</p>'}`;
 }
 
@@ -1406,10 +1401,7 @@ function renderMore() {
 
   $('#rules').innerHTML = `
     <h2>📐 Хуваарилалтын дүрэм</h2>
-    <table class="rules">
-      <thead><tr><th>Данс</th><th>Хувь</th><th>4 саяас</th></tr></thead>
-      <tbody>${ACCOUNTS.map((a) => `<tr><td>${a.emoji} ${a.name}</td><td>${a.pct}%</td><td>${fmtNum((TARGET * a.pct) / 100)}</td></tr>`).join('')}</tbody>
-    </table>
+    <ul class="rule-list">${ACCOUNTS.map((a) => `<li><span>${a.emoji} ${a.name}</span><b>${a.pct}%</b><span class="num muted">${fmtShort((TARGET * a.pct) / 100)}</span></li>`).join('')}</ul>
     <p class="note">Сарын орлого 4 сая хүртэл дээрх хувиар, илүүдэл нь 🎯 🛡️ дансанд тэнцүү хуваагдана.</p>
     <details>
       <summary>Дэлгэрэнгүй</summary>

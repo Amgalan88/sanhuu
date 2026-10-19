@@ -875,10 +875,6 @@ label.btn { cursor: pointer; }
 
 /* ---------- Арын хөдөлгөөнт дэвсгэр ---------- */
 canvas.backdrop { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
-:root[data-backdrop]:not([data-backdrop="none"]) .card {
-  background: color-mix(in srgb, var(--surface) 80%, transparent);
-  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
-}
 .backdrop-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .backdrop-pick button {
   display: grid; justify-items: center; gap: 2px; min-height: 72px; padding: 8px 4px; border-radius: 16px;
@@ -887,3 +883,51 @@ canvas.backdrop { position: fixed; inset: 0; width: 100%; height: 100%; z-index:
 .backdrop-pick button small { font-size: 11px; font-weight: 500; }
 .backdrop-pick .bd-e { font-size: 22px; line-height: 1.1; }
 .backdrop-pick button[aria-checked="true"] { border-color: var(--gold-fill); background: var(--gold-soft); color: var(--text); }
+
+/* ============================================================
+   Нээлттэй загвар: хайрцаг (карт), хүснэгтгүй — хэсгүүдийг зай,
+   нимгэн зураасаар л тусгаарлана. Арын дэвсгэр бүхэлдээ харагдана.
+   ============================================================ */
+.card { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 4px 2px; }
+.quick, #tasks { border: 0; padding: 4px 2px; }
+.view { gap: 30px; }
+.view > .card + .card::before {
+  content: ''; display: block; height: 1px; margin: -16px 0 16px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--muted) 30%, transparent) 20%, color-mix(in srgb, var(--muted) 30%, transparent) 80%, transparent);
+}
+.card h2 { margin-bottom: 4px; }
+.card-head { margin-bottom: 10px; }
+
+/* Дотоод хайрцгуудыг хөнгөрүүлнэ */
+.tgroup { background: none; padding: 6px 0 2px; border-radius: 0; border-top: 1px dashed color-mix(in srgb, var(--muted) 30%, transparent); }
+.tgroup.fresh { box-shadow: none; animation: none; border-top-color: var(--gold-fill); }
+.ov-chip { background: none; border-radius: 0; padding: 4px 2px 6px; }
+.stat, .stat.off { background: none; border: 0; padding: 4px 2px; }
+.milestone { background: none; padding: 4px 0; }
+.ticker { background: none; border: 0; box-shadow: none; padding: 4px 2px 8px; min-height: 0; }
+.t-emoji { background: none; width: 26px; height: 26px; }
+.t-prog { opacity: .5; height: 2px; }
+.tx-emoji { background: none; }
+.cat { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.chip { background: none; }
+.seg { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+.list .tx, .task, .log { border-bottom-color: color-mix(in srgb, var(--border) 60%, transparent); }
+
+/* Түүх: сар бүрийн жагсаалт */
+.hist { list-style: none; margin: 8px 0 0; padding: 0; }
+.hist li { padding: 12px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.hist li:last-child { border-bottom: 0; }
+.hist li.sel .h-top span { color: var(--gold); }
+.h-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 14.5px; }
+.h-sub { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 12.5px; color: var(--muted); font-family: 'JetBrains Mono', monospace; letter-spacing: -.02em; }
+.hist-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.hist-total b { color: var(--text); font-size: 15px; font-weight: 600; }
+
+/* Дүрэм: энгийн мөрүүд */
+.rule-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.rule-list li { display: grid; grid-template-columns: 1fr 52px 76px; gap: 8px; padding: 7px 0; font-size: 14px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.rule-list li:last-child { border-bottom: 0; }
+.rule-list b { text-align: right; font-weight: 600; }
+.rule-list .num { text-align: right; }
+.coins { background: none; height: 300px; }
+.coins-fallback { color: var(--muted); }

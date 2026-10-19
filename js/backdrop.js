@@ -55,12 +55,12 @@ const rgba = (tpl, a) => tpl.replace('A', a.toFixed(3));
 // ---------- Бөөмс ----------
 function spawn(s, initial) {
   const y = initial ? rnd(-H * 0.1, H) : rnd(-60, -10);
-  if (s === 'snow') return { x: rnd(0, W), y, r: rnd(1.5, 4.5), vy: rnd(18, 45), sway: rnd(0.4, 1.4), ph: rnd(0, 6.3), a: rnd(0.35, 0.9) };
+  if (s === 'snow') return { x: rnd(0, W), y, r: rnd(1.5, 4.5), vy: rnd(18, 45), sway: rnd(0.4, 1.4), ph: rnd(0, 6.3), a: rnd(0.3, 0.75) };
   if (s === 'rain') return { x: rnd(-W * 0.2, W), y: initial ? rnd(-H, H) : rnd(-H * 0.3, -10), len: rnd(12, 26), vy: rnd(420, 620), a: rnd(0.25, 0.55) };
   if (s === 'leaves') {
     return {
       x: rnd(-40, W), y, size: rnd(11, 21), vy: rnd(28, 55), vx: rnd(8, 30), rot: rnd(0, 6.3), vr: rnd(-1.6, 1.6),
-      flip: rnd(0, 6.3), vf: rnd(1, 3), sway: rnd(18, 45), ph: rnd(0, 6.3), c: Math.floor(rnd(0, 5)), a: rnd(0.55, 0.9),
+      flip: rnd(0, 6.3), vf: rnd(1, 3), sway: rnd(18, 45), ph: rnd(0, 6.3), c: Math.floor(rnd(0, 5)), a: rnd(0.35, 0.65),
     };
   }
   if (s === 'sun') return { x: rnd(0, W), y: initial ? rnd(0, H) : H + 20, r: rnd(2, 7), vy: rnd(-10, -4), vx: rnd(-4, 4), ph: rnd(0, 6.3), a: rnd(0.15, 0.45) };
