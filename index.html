@@ -61,7 +61,11 @@
     <header class="topbar">
       <a class="brand" id="brand" href="./" aria-label="Нүүр хуудас"><img class="brand-coin" src="icons/coin.svg" alt=""> <span class="logo">Бидний <span>санхүү</span></span></a>
       <div class="top-right">
-        <button id="music-btn" class="music-btn" type="button" aria-label="Хөгжим"></button>
+        <!-- YouTube тоглуулагч: жижиг цонх, дээр нь дарвал дуу гаргах / дараагийн дуу -->
+        <div class="yt-mini" id="yt-mini">
+          <div id="yt-frame" class="yt-frame"></div>
+          <button id="music-btn" class="yt-tap" type="button" aria-label="Хөгжим"><span class="yt-badge" aria-hidden="true"></span></button>
+        </div>
         <button id="who" class="who" type="button" aria-label="Хэрэглэгч"></button>
       </div>
       <div class="month-nav">
@@ -153,15 +157,6 @@
 
     <button type="button" id="fab" class="fab" aria-label="Шинэ бүртгэл">+</button>
 
-    <!-- YouTube тоглуулагч (хөгжмийн эх сурвалж ▶️ YouTube үед) -->
-    <div id="yt-dock" class="yt-dock" role="region" aria-label="YouTube тоглуулагч">
-      <div id="yt-frame" class="yt-frame"></div>
-      <div class="yt-bar">
-        <span id="yt-title" class="yt-title">▶️ Дээр нь дарж эхлүүлнэ</span>
-        <button type="button" id="yt-next" aria-label="Дараагийн дуу">⏭️</button>
-        <button type="button" id="yt-close" aria-label="Хөгжим унтраах">✕</button>
-      </div>
-    </div>
 
     <!-- Амжилт нэмэх -->
     <dialog id="ach-sheet" class="sheet" aria-labelledby="ach-sheet-title">

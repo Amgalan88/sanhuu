@@ -1,7 +1,7 @@
 // YouTube-ээс алдартай дуунууд ▶️ — YouTube IFrame Player API.
 // Дууг апп-д хадгалахгүй (зохиогчийн эрх) — YouTube-ийн өөрийн тоглуулагчаар тоглуулна.
-// Тоглуулагч дэлгэцийн доод буланд жижиг цонхоор харагдана (YouTube-ийн нөхцөлөөр нуухгүй).
-// Утсанд дуу эхлүүлэхэд ихэвчлэн тоглуулагч дээр нэг удаа дарах шаардлагатай.
+// Тоглуулагч дээд мөрөнд, профайлын хажууд жижиг цонхоор харагдана.
+// Хөтөч дуутай автоматаар эхлүүлэхийг хориглодог тул дуугүй эхэлж, анхны хүрэлтээр ytUnmute().
 
 // Уур амьсгал бүрийн анхны жагсаалт (YouTube видео ID). Тоглохгүй видеог автоматаар алгасна.
 export const DEFAULT_LISTS = {
@@ -120,17 +120,19 @@ export async function ytStart(host, m) {
     return;
   }
   const YT = await loadApi();
-  if (!YT) { unavailable = true; notify(); return; } // интернэтгүй/хаалттай → апп-ын аялгуу
+  if (!YT) { unavailable = true; notify(); return; } // интернэтгүй/хаалттай
   const el = document.createElement('div');
   host.appendChild(el);
   player = new YT.Player(el, {
     width: '100%', height: '100%',
     host: 'https://www.youtube-nocookie.com',
-    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3, fs: 0 },
+    // mute: дуугүй бол хөтөч автоматаар тоглуулахыг зөвшөөрнө
+    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3, fs: 0, controls: 0, disablekb: 1, mute: 1, autoplay: 1 },
     events: {
       onReady: () => {
         ready = true;
         player.setVolume(volume);
+        if (wantSound) player.unMute();
         load(m, wantPlay);
       },
       onStateChange: (e) => {
@@ -145,6 +147,19 @@ export async function ytStart(host, m) {
     },
   });
 }
+
+let wantSound = false;
+/** Хэрэглэгчийн хүрэлтийн дотроос дуудна: дууг гаргаж тоглуулна */
+export function ytUnmute() {
+  wantSound = true;
+  wantPlay = true;
+  if (!ready) return;
+  player.unMute();
+  player.setVolume(volume);
+  if (player.getPlayerState?.() !== 1) player.playVideo();
+  setTimeout(notify, 300);
+}
+export const ytMuted = () => (ready ? player.isMuted?.() ?? true : true);
 
 export function ytPause() {
   wantPlay = false;
