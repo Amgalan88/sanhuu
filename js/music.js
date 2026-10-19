@@ -1,4 +1,6 @@
-// Арын хөгжим 🎵 — Web Audio API-аар апп дотор нийлүүлнэ (дуу файлгүй).
+// Арын хөгжим 🎵. Хоёр эх сурвалж:
+//   ▶️ YouTube (анхдагч) — алдартай дуунууд, js/youtube.js
+//   🎹 Апп-ын аялгуу — Web Audio API-аар апп дотор нийлүүлнэ (дуу файлгүй).
 // Цаг хугацаагаар уур амьсгал солигдоно: 🌅 өглөө · ☀️ өдөр · 🌆 үдэш · 🌙 шөнө (js/songs.js).
 // Дуу дуусахаар ижил уур амьсгалын дараагийн дуу; 🎵 товч дарвал шууд дараагийн дуу.
 //
@@ -6,10 +8,12 @@
 // Апп нуугдахад зогсоно.
 
 import { SONGS, MOODS, moodAt, parseMelody, parseChord } from './songs.js';
+import { ytStart, ytPause, ytNext, ytMood, ytReload, ytVolume, ytPlaying, ytTitle, ytUnavailable, onYouTube } from './youtube.js';
 
 const PREF = 'bidnii-sanhuu-music';
 const VOL = 'bidnii-sanhuu-music-vol';
 const MOOD = 'bidnii-sanhuu-music-mood';
+const SRC = 'bidnii-sanhuu-music-src';
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
 
 // Дууг нэг удаа задлана
@@ -32,11 +36,17 @@ const write = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore 
 
 export { MOODS };
 export const musicOn = () => read(PREF, 'on') === 'on';
-export const musicPlaying = () => playing && ctx?.state === 'running';
+export const musicSource = () => (read(SRC, 'youtube') === 'synth' ? 'synth' : 'youtube');
+const yt = () => musicSource() === 'youtube' && !ytUnavailable(); // YouTube ачаалагдаагүй бол апп-ын аялгуу
+export const musicPlaying = () => (yt() ? ytPlaying() : playing && ctx?.state === 'running');
 export const musicVolume = () => Math.min(1, Math.max(0, Number(read(VOL, '0.6')) || 0));
 export const musicMoodPref = () => read(MOOD, 'auto');
 export const currentMood = () => (musicMoodPref() === 'auto' ? moodAt(new Date().getHours()) : musicMoodPref());
-export const currentSong = () => track;
+export const currentSong = () => {
+  if (!yt()) return track;
+  const m = MOODS.find((x) => x.key === currentMood());
+  return { emoji: m.emoji, title: ytTitle() || `YouTube · ${m.name}` };
+};
 export const onMusicChange = (fn) => listeners.add(fn);
 const notify = () => listeners.forEach((fn) => fn());
 
@@ -396,7 +406,29 @@ function fade(to, sec) {
 
 const level = () => 0.8 * musicVolume();
 
+const ytHost = () => document.getElementById('yt-frame');
+
 function start() {
+  if (yt()) {
+    synthStop();
+    arm(); // утсанд анхны хүрэлтээр (эсвэл тоглуулагч дээр дарж) эхэлнэ
+    ytVolume(musicVolume());
+    ytStart(ytHost(), currentMood());
+    document.documentElement.dataset.yt = 'on';
+    notify();
+    return;
+  }
+  ytPause();
+  delete document.documentElement.dataset.yt;
+  synthStart();
+}
+
+function stop() {
+  ytPause();
+  synthStop();
+}
+
+function synthStart() {
   if (!ctx && !build()) return;
   arm(); // хөтөч хүлээлгэсэн бол анхны хүрэлтээр үргэлжилнэ
   ctx.resume?.().then(onState, () => {});
@@ -411,7 +443,7 @@ function start() {
   notify();
 }
 
-function stop() {
+function synthStop() {
   if (!playing) return;
   playing = false;
   clearInterval(timer);
@@ -435,6 +467,7 @@ function onState() {
 const GESTURES = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'];
 function onGesture() {
   if (!musicOn() || document.hidden) return;
+  if (yt()) { if (!ytPlaying()) ytStart(ytHost(), currentMood()); else disarm(); return; }
   if (!playing) start();
   else ctx.resume?.().then(onState, () => {});
 }
@@ -442,6 +475,15 @@ function arm() { GESTURES.forEach((e) => document.addEventListener(e, onGesture,
 function disarm() { GESTURES.forEach((e) => document.removeEventListener(e, onGesture, { capture: true })); }
 
 export function initMusic() {
+  // YouTube: дуу солигдох бүрт мэдэгдэнэ; цаг өөрчлөгдсөн бол шинэ уур амьсгалын жагсаалт
+  onYouTube(() => {
+    if (ytUnavailable() && musicOn() && !playing) start(); // апп-ын аялгуу руу шилжинэ
+    if (yt() && musicOn()) {
+      ytMood(currentMood());
+      if (ytPlaying()) disarm();
+    }
+    notify();
+  });
   if (musicOn()) start(); // нээмэгц эхлүүлэхийг оролдоно
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stop();
@@ -451,12 +493,22 @@ export function initMusic() {
 
 export function setMusicOn(on) {
   write(PREF, on ? 'on' : 'off');
-  if (on) start(); else { disarm(); stop(); }
+  if (on) start(); else { disarm(); stop(); delete document.documentElement.dataset.yt; }
+  notify();
+}
+
+/** Өөрийн YouTube холбоос солигдсон үед */
+export function reloadMusic() { if (yt() && musicOn()) ytReload(currentMood()); }
+
+export function setMusicSource(src) {
+  write(SRC, src);
+  if (musicOn()) start();
   notify();
 }
 
 /** 🎵 товч: тоглоогүй бол эхлүүлнэ, тоглож байвал шууд дараагийн дуу */
 export function nextSong() {
+  if (yt() && musicOn()) { ytNext(currentMood()); if (!ytPlaying()) start(); return; }
   if (!musicOn() || !musicPlaying()) { setMusicOn(true); return; }
   newSession(0.4);
   switchTrack(pickNext(), ctx.currentTime + 0.25);
@@ -471,6 +523,7 @@ export function setMusicMood(m) {
 
 export function setMusicVolume(v) {
   write(VOL, String(v));
+  ytVolume(v);
   if (playing) fade(level(), 0.15);
 }
 

@@ -15,8 +15,9 @@ import { BACKDROPS, initBackdrop, setBackdrop, backdropPref, activeScene, refres
 import { registerSW, pushState, enablePush, disablePush } from './push.js';
 import {
   MOODS, initMusic, musicOn, musicPlaying, musicVolume, musicMoodPref, currentMood, currentSong,
-  onMusicChange, setMusicOn, nextSong, setMusicMood, setMusicVolume,
+  onMusicChange, setMusicOn, nextSong, setMusicMood, setMusicVolume, musicSource, setMusicSource, reloadMusic,
 } from './music.js';
+import { customLink, setCustomLink, parseYouTube } from './youtube.js';
 
 // ============================================================
 // Туслах
@@ -1203,21 +1204,28 @@ function renderMusic() {
   btn.setAttribute('aria-pressed', String(on && musicPlaying()));
   btn.title = on && song ? `${song.title} · дарвал дараагийн дуу` : 'Хөгжим асаах';
   btn.setAttribute('aria-label', btn.title);
+  const src = musicSource();
+  $('#yt-title').textContent = song?.title && musicPlaying() ? song.title : '▶️ Дээр нь дарж эхлүүлнэ';
 
   const box = $('#music-card');
   if (!box || !S.me) return;
   const vol = Math.round(musicVolume() * 100);
   // Гулсуулж байх үед дахин зурахгүй (хуруу алдагдана)
-  if (box.contains(document.activeElement) && document.activeElement.type === 'range') return;
+  if (box.contains(document.activeElement) && ['range', 'url'].includes(document.activeElement.type)) return;
   const pref = musicMoodPref();
   const mood = MOODS.find((m) => m.key === currentMood());
+  const linksOpen = $('#music-card details')?.open ? 'open' : '';
   const status = !on ? '🔇 Унтраалттай'
     : musicPlaying() && song ? `🎶 ${song.emoji} ${esc(song.title)}`
-    : '🎵 Дэлгэц дээр хүрэхэд эхэлнэ';
+    : src === 'youtube' ? '▶️ Доорх тоглуулагч дээр дарж эхлүүлнэ' : '🎵 Дэлгэц дээр хүрэхэд эхэлнэ';
   box.innerHTML = `
     <h2>🎵 Хөгжим</h2>
     <div class="music-now"><b>${status}</b>${on ? `<small>${mood.emoji} ${mood.name}</small>` : ''}</div>
     ${on ? `
+    <div class="seg music-src" role="group" aria-label="Хөгжмийн эх сурвалж">
+      <button type="button" data-music-src="youtube" aria-pressed="${src === 'youtube'}">▶️ Алдартай дуу</button>
+      <button type="button" data-music-src="synth" aria-pressed="${src === 'synth'}">🎹 Апп-ын аялгуу</button>
+    </div>
     <div class="mood-pick" role="radiogroup" aria-label="Уур амьсгал">
       <button type="button" role="radio" data-music-mood="auto" aria-checked="${pref === 'auto'}">🕐 Цагаар</button>
       ${MOODS.map((m) => `<button type="button" role="radio" data-music-mood="${m.key}" aria-checked="${pref === m.key}">${m.emoji} ${m.name.split(' ·')[0]}</button>`).join('')}
@@ -1226,18 +1234,29 @@ function renderMusic() {
       <span aria-hidden="true">🔈</span>
       <input type="range" id="music-vol" min="0" max="100" step="5" value="${vol}" aria-label="Дууны хэмжээ">
       <span aria-hidden="true">🔊</span>
-    </label>` : ''}
+    </label>
+    ${src === 'youtube' ? `<details ${linksOpen}>
+      <summary>🔗 Өөрсдийн YouTube жагсаалт</summary>
+      <div class="yt-links">
+        ${MOODS.map((m) => `<label>${m.emoji} ${m.name}
+          <input type="url" inputmode="url" data-yt-link="${m.key}" value="${esc(customLink(m.key))}" placeholder="Хоосон бол алдартай дуунууд" autocomplete="off">
+        </label>`).join('')}
+      </div>
+      <p class="note">YouTube playlist эсвэл видеоны холбоосыг хуулж тавина (хэд хэдэн видеог зайгаар). Энэ утсанд хадгалагдана.</p>
+    </details>` : ''}` : ''}
     <div class="btn-row">
       ${on ? '<button type="button" class="btn" id="music-next" style="flex:1">⏭️ Дараагийн дуу</button>' : ''}
       <button type="button" class="btn ${on ? '' : 'primary block'}" id="music-toggle">${on ? '🔇 Унтраах' : '🎵 Хөгжим асаах'}</button>
     </div>
-    <p class="note">🕐 Цагаар: 🌅 өглөө (5–11) · ☀️ өдөр урам зориг (11–17) · 🌆 үдэш романтик (17–21) · 🌙 шөнө бүүвэй (21–5). Дээд мөрний 🎵 дээр дарвал шууд дараагийн дуу. 📱 iPhone дуугүй (silent) горимд сонсогдохгүй.</p>`;
+    <p class="note">🕐 Цагаар: 🌅 өглөө (5–11) · ☀️ өдөр урам зориг (11–17) · 🌆 үдэш романтик (17–21) · 🌙 шөнө тайван (21–5). Дээд мөрний 🎵 дээр дарвал шууд дараагийн дуу.
+    ${src === 'youtube' ? 'Утсанд анх удаа доод буланд гарах YouTube тоглуулагч дээр нэг дарж эхлүүлнэ.' : '📱 iPhone дуугүй (silent) горимд сонсогдохгүй.'}</p>`;
 }
 
 function playNext() {
   nextSong();
   const song = currentSong();
-  if (song) toast(`🎵 ${song.emoji} ${song.title}`, { ms: 1800 });
+  if (musicSource() === 'youtube' && document.documentElement.dataset.yt) toast('⏭️ Дараагийн дуу', { ms: 1500 });
+  else if (song) toast(`🎵 ${song.emoji} ${song.title}`, { ms: 1800 });
 }
 
 // ---------- Орлогын төрөл (нэр, хуваарилалт) ----------
@@ -1557,6 +1576,18 @@ function wireGlobal() {
   $('#fab').addEventListener('click', goQuick);
   $('#who').addEventListener('click', () => setView('more'));
   $('#music-btn').addEventListener('click', playNext);
+  $('#yt-next').addEventListener('click', playNext);
+  $('#yt-close').addEventListener('click', () => setMusicOn(false));
+  // Өөрийн YouTube холбоос: буруу бол анхааруулна
+  document.addEventListener('change', (e) => {
+    const m = e.target.dataset?.ytLink;
+    if (!m) return;
+    const v = e.target.value.trim();
+    if (v && !parseYouTube(v)) { toast('⚠️ YouTube холбоос танигдсангүй', { kind: 'err' }); return; }
+    setCustomLink(m, v);
+    reloadMusic();
+    toast(v ? '🔗 Жагсаалт хадгаллаа' : '↺ Алдартай дуунууд руу буцлаа');
+  });
   document.addEventListener('input', (e) => { if (e.target.id === 'music-vol') setMusicVolume(e.target.value / 100); });
   $('#brand').addEventListener('click', (e) => { e.preventDefault(); setView('home'); });
 
@@ -1605,6 +1636,8 @@ function wireGlobal() {
     if (e.target.closest('#music-next')) return playNext();
     const bd = e.target.closest('[data-bg-pick]');
     if (bd) { setBackdrop(bd.dataset.bgPick); renderBackdropPick(); return; }
+    const ms = e.target.closest('[data-music-src]');
+    if (ms) return setMusicSource(ms.dataset.musicSrc);
     const mm = e.target.closest('[data-music-mood]');
     if (mm) return setMusicMood(mm.dataset.musicMood);
     const et = e.target.closest('[data-edit-type]');

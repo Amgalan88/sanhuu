@@ -8,7 +8,7 @@ export const MOODS = [
   { key: 'morning', emoji: '🌅', name: 'Өглөө', from: 5, to: 11 },
   { key: 'day', emoji: '☀️', name: 'Өдөр · урам зориг', from: 11, to: 17 },
   { key: 'evening', emoji: '🌆', name: 'Үдэш · романтик', from: 17, to: 21 },
-  { key: 'night', emoji: '🌙', name: 'Шөнө · бүүвэй', from: 21, to: 5 },
+  { key: 'night', emoji: '🌙', name: 'Шөнө · тайван', from: 21, to: 5 },
 ];
 
 /** Тухайн цагийн уур амьсгал: 5–11 өглөө, 11–17 өдөр, 17–21 үдэш, 21–5 шөнө */
