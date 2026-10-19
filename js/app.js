@@ -11,8 +11,12 @@ import { confetti } from './confetti.js';
 import { celebrate, pick } from './celebrate.js';
 import { achievementImages } from './image.js';
 import { cropAvatar } from './cropper.js';
+import { BACKDROPS, initBackdrop, setBackdrop, backdropPref, activeScene, refreshBackdrop } from './backdrop.js';
 import { registerSW, pushState, enablePush, disablePush } from './push.js';
-import { initMusic, musicOn, musicPlaying, musicVolume, onMusicChange, setMusicOn, toggleMusic, setMusicVolume } from './music.js';
+import {
+  MOODS, initMusic, musicOn, musicPlaying, musicVolume, musicMoodPref, currentMood, currentSong,
+  onMusicChange, setMusicOn, nextSong, setMusicMood, setMusicVolume,
+} from './music.js';
 
 // ============================================================
 // Туслах
@@ -89,7 +93,8 @@ boot();
 
 async function boot() {
   applyTheme(getTheme());
-  initMusic(); // анхны товшилтоор аяархан хөгжим эхэлнэ
+  initBackdrop(); // цас · бороо · нар · навч
+  initMusic(); // нээмэгц хөгжим эхэлнэ (хөтөч хүлээлгэвэл анхны хүрэлтээр)
   onMusicChange(renderMusic);
   registerSW(); // push мэдэгдэл, апп болгон суулгах
   S.store = SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStore();
@@ -1196,27 +1201,48 @@ async function pushAction(fn, okMsg) {
 // ---------- Хөгжим ----------
 function renderMusic() {
   const on = musicOn();
+  const song = currentSong();
   const btn = $('#music-btn');
   btn.textContent = on ? '🎵' : '🔇';
   btn.classList.toggle('off', !on);
   btn.setAttribute('aria-pressed', String(on && musicPlaying()));
-  btn.title = on ? 'Хөгжим унтраах' : 'Хөгжим асаах';
+  btn.title = on && song ? `${song.title} · дарвал дараагийн дуу` : 'Хөгжим асаах';
+  btn.setAttribute('aria-label', btn.title);
 
   const box = $('#music-card');
   if (!box || !S.me) return;
   const vol = Math.round(musicVolume() * 100);
   // Гулсуулж байх үед дахин зурахгүй (хуруу алдагдана)
   if (box.contains(document.activeElement) && document.activeElement.type === 'range') return;
+  const pref = musicMoodPref();
+  const mood = MOODS.find((m) => m.key === currentMood());
+  const status = !on ? '🔇 Унтраалттай'
+    : musicPlaying() && song ? `🎶 ${song.emoji} ${esc(song.title)}`
+    : '🎵 Дэлгэц дээр хүрэхэд эхэлнэ';
   box.innerHTML = `
     <h2>🎵 Хөгжим</h2>
-    <div class="notif-row"><b>${on ? (musicPlaying() ? '🎶 Тоглож байна' : '🎵 Асаалттай · дэлгэц дээр товшоод эхэлнэ') : '🔇 Унтраалттай'}</b></div>
-    <label class="vol-row" ${on ? '' : 'hidden'}>
+    <div class="music-now"><b>${status}</b>${on ? `<small>${mood.emoji} ${mood.name}</small>` : ''}</div>
+    ${on ? `
+    <div class="mood-pick" role="radiogroup" aria-label="Уур амьсгал">
+      <button type="button" role="radio" data-music-mood="auto" aria-checked="${pref === 'auto'}">🕐 Цагаар</button>
+      ${MOODS.map((m) => `<button type="button" role="radio" data-music-mood="${m.key}" aria-checked="${pref === m.key}">${m.emoji} ${m.name.split(' ·')[0]}</button>`).join('')}
+    </div>
+    <label class="vol-row">
       <span aria-hidden="true">🔈</span>
       <input type="range" id="music-vol" min="0" max="100" step="5" value="${vol}" aria-label="Дууны хэмжээ">
       <span aria-hidden="true">🔊</span>
-    </label>
-    <div class="btn-row"><button type="button" class="btn block ${on ? '' : 'primary'}" id="music-toggle">${on ? '🔇 Хөгжим унтраах' : '🎵 Хөгжим асаах'}</button></div>
-    <p class="note">Апп нээхэд аяархан хонхон аялгуу эгшиглэнэ. 📱 iPhone дуугүй (silent) горимд байвал сонсогдохгүй.</p>`;
+    </label>` : ''}
+    <div class="btn-row">
+      ${on ? '<button type="button" class="btn" id="music-next" style="flex:1">⏭️ Дараагийн дуу</button>' : ''}
+      <button type="button" class="btn ${on ? '' : 'primary block'}" id="music-toggle">${on ? '🔇 Унтраах' : '🎵 Хөгжим асаах'}</button>
+    </div>
+    <p class="note">🕐 Цагаар: 🌅 өглөө (5–11) · ☀️ өдөр урам зориг (11–17) · 🌆 үдэш романтик (17–21) · 🌙 шөнө бүүвэй (21–5). Дээд мөрний 🎵 дээр дарвал шууд дараагийн дуу. 📱 iPhone дуугүй (silent) горимд сонсогдохгүй.</p>`;
+}
+
+function playNext() {
+  nextSong();
+  const song = currentSong();
+  if (song) toast(`🎵 ${song.emoji} ${song.title}`, { ms: 1800 });
 }
 
 // ---------- Орлогын төрөл (нэр, хуваарилалт) ----------
@@ -1384,15 +1410,29 @@ function renderMore() {
       <thead><tr><th>Данс</th><th>Хувь</th><th>4 саяас</th></tr></thead>
       <tbody>${ACCOUNTS.map((a) => `<tr><td>${a.emoji} ${a.name}</td><td>${a.pct}%</td><td>${fmtNum((TARGET * a.pct) / 100)}</td></tr>`).join('')}</tbody>
     </table>
+    <p class="note">Сарын орлого 4 сая хүртэл дээрх хувиар, илүүдэл нь 🎯 🛡️ дансанд тэнцүү хуваагдана.</p>
+    <details>
+      <summary>Дэлгэрэнгүй</summary>
     <p class="note">• <b>4 саяас илүү</b> бол илүүдлийг 🎯 Зорилтот, 🛡️ Эрсдэлийн санд <b>тэнцүү</b> (20:20 → 50% / 50%) нэмнэ.
       Жишээ: 600,000₮ илүүдэл → 🎯 +300,000, 🛡️ +300,000.</p>
     <p class="note">• 🏦 Хадгаламж, ✈️ Аялал дансууд 🎯 <b>Зорилтот</b> дансанд нэгдсэн — өмнөх үлдэгдэл, зарлага нь Зорилтот дансанд нийлж тооцогдоно.</p>
     <p class="note">• <b>4 саяас бага</b> бол дээрх хувиар хуваана. Бутархай үлдэгдэл 🛡️ эрсдэлийн санд.</p>
     <p class="note">• 💼 Орлогын төрөл бүрт <b>өөрийн хувь</b> тохируулж болно (дээрх “Орлогын төрөл” хэсэг). Тэр төрлийн орлого 4 саяын дүрэмд орохгүй, шууд тохируулсан хувиар хуваагдана.</p>
     <p class="note">• 🏠 Өрхийн дансны үлдэгдэл дараа сард шилжинэ, хэтэрсэн бол дараа сараас хасагдана. 🎯 Зорилтот, 🛡️ Эрсдэлийн сан хуримтлагдана.</p>
-    <p class="note">• 💸 Зарлага бүртгэхдээ <b>“Аль данснаас”</b>-ыг сонгоно. 🎯 🛡️ данснаас гаргасан зарлага тухайн дансны хуримтлалаас хасагдана, өрхийн дансанд нөлөөлөхгүй.</p>`;
+    <p class="note">• 💸 Зарлага бүртгэхдээ <b>“Аль данснаас”</b>-ыг сонгоно. 🎯 🛡️ данснаас гаргасан зарлага тухайн дансны хуримтлалаас хасагдана, өрхийн дансанд нөлөөлөхгүй.</p>
+    </details>`;
 
   $$('#theme-seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeSet === getTheme())));
+  renderBackdropPick();
+}
+
+function renderBackdropPick() {
+  const pref = backdropPref();
+  const season = BACKDROPS.find((b) => b.key === activeScene());
+  $('#backdrop-pick').innerHTML = BACKDROPS.map((b) => `
+    <button type="button" role="radio" data-bg-pick="${b.key}" aria-checked="${b.key === pref}">
+      <span class="bd-e" aria-hidden="true">${b.emoji}</span>${b.name}${b.key === 'auto' ? `<small>одоо ${season.emoji}</small>` : ''}
+    </button>`).join('');
 }
 
 // ============================================================
@@ -1524,7 +1564,7 @@ function wireGlobal() {
   addEventListener('hashchange', () => setView(location.hash.slice(1) || 'home', false));
   $('#fab').addEventListener('click', goQuick);
   $('#who').addEventListener('click', () => setView('more'));
-  $('#music-btn').addEventListener('click', toggleMusic);
+  $('#music-btn').addEventListener('click', playNext);
   document.addEventListener('input', (e) => { if (e.target.id === 'music-vol') setMusicVolume(e.target.value / 100); });
   $('#brand').addEventListener('click', (e) => { e.preventDefault(); setView('home'); });
 
@@ -1570,6 +1610,11 @@ function wireGlobal() {
     if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
 
     if (e.target.closest('#music-toggle')) return setMusicOn(!musicOn());
+    if (e.target.closest('#music-next')) return playNext();
+    const bd = e.target.closest('[data-bg-pick]');
+    if (bd) { setBackdrop(bd.dataset.bgPick); renderBackdropPick(); return; }
+    const mm = e.target.closest('[data-music-mood]');
+    if (mm) return setMusicMood(mm.dataset.musicMood);
     const et = e.target.closest('[data-edit-type]');
     if (et) return openTypeSheet(et.dataset.editType);
     if (e.target.closest('#audit-more')) { S.auditLimit += 50; renderAudit(); return; }
@@ -1675,4 +1720,5 @@ function setTheme(t) {
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[t]);
+  refreshBackdrop();
 }
