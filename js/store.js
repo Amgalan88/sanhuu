@@ -248,7 +248,13 @@ export class SupabaseStore {
   async add(kind, fields) {
     const row = { id: uuid(), ...fields, created_by: this.me.user_id };
     const { data, error } = await this.sb.from(TABLE[kind]).insert(row).select().single();
-    if (error) throw error;
+    if (error) {
+      // Хуримтлалын данснаас гаргах зарлагад expenses.account багана хэрэгтэй
+      if (fields.account && (error.code === 'PGRST204' || error.code === '42703')) {
+        throw new Error('Эхлээд Supabase дээр supabase/expense-accounts.sql-ийг ажиллуулна уу');
+      }
+      throw error;
+    }
     await this.#audit('add', describe(kind, data), data.id);
     return data;
   }

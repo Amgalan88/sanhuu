@@ -324,6 +324,23 @@ main {
 .cat[aria-pressed="true"] { border-color: var(--gold-fill); background: var(--gold-soft); }
 .cat:active { transform: scale(.95); }
 
+/* Зарлагыг аль данснаас гаргах */
+.accs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.accs[hidden] { display: none; }
+.accs-label { flex: 1 0 100%; font-size: 12.5px; font-weight: 700; color: var(--muted); margin-left: 4px; }
+.acc {
+  flex: 1 1 auto; min-height: 40px; padding: 0 10px; border-radius: 999px; white-space: nowrap;
+  border: 2px solid transparent; background: var(--surface-2); font-size: 13px; font-weight: 700; color: var(--muted);
+}
+.acc[aria-pressed="true"] { border-color: var(--c); color: var(--text); background: var(--surface); }
+.acc:active { transform: scale(.96); }
+.acc-tag {
+  display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 999px; font-weight: 700;
+  border: 1.5px solid var(--c); color: var(--text); white-space: nowrap;
+}
+.acc-split { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); }
+.ov-saved .ov-sub { color: var(--muted); }
+
 .extra-toggle { margin-top: 8px; min-height: 36px; padding: 0 4px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
 .extra { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 4px; }
 .extra input {
