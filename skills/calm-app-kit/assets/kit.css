@@ -1,0 +1,298 @@
+/* ============================================================
+   Calm App Kit — "Бидний санхүү"-ээс гаргасан, өөр төсөлд хуулж ашиглах загвар.
+   1) Өнгөний токен: ☀️ Гэрэл · 🌙 Харанхуй · 👁️ Нүдэнд ээлтэй (sepia)
+   2) Тайван бичвэр: 700-аас илүү тод жингүй, жижиг үсэг, их зай
+   3) Хайрцаггүй (open) загвар: хэсгийг зай + нимгэн зураасаар тусгаарлана
+   4) Бүрэлдэхүүн: товч, segmented, доороос гарах цонх, toast, профайл зураг,
+      сэдэв/дэвсгэр/уур амьсгал сонгогч, дээд мөрний YouTube тоглуулагч,
+      зураг тайрагч, баярын цонх
+   Брэндийн өнгийг солих бол --gold-*, --sky-* токенуудыг л өөрчилнө.
+   ============================================================ */
+
+/* ---------- 1. Өнгөний токен ---------- */
+:root {
+  --bg: #edf2fb;
+  --surface: #ffffff;
+  --surface-2: #f2f6fd;
+  --text: #0e1a36;
+  --muted: #5a6a8b;
+  --border: #d8e1f1;
+  --gold: #a8740a;          /* цагаан дээрх тод текст */
+  --gold-fill: #f2c14e;     /* дүүргэлт, сонгосон хүрээ */
+  --gold-soft: #fff4d6;     /* сонгосон зүйлийн зөөлөн дэвсгэр */
+  --sky: #0a2461;           /* толгой мөрийн градиент */
+  --sky-2: #1a4fa8;
+  --ok: #178a4f;
+  --ok-soft: #e2f6ec;
+  --warn: #b27400;
+  --warn-soft: #fff3d6;
+  --bad: #d23a40;
+  --bad-soft: #fde7e8;
+  --shadow: 0 4px 18px rgba(14, 38, 90, .06);
+  --track: #e4eaf5;
+  --topbar: linear-gradient(135deg, #0a2461, #123d8c 60%, #1a4fa8);
+  --toast: #0c1a3d;
+  color-scheme: light;
+}
+
+/* Сэдэв сонгоогүй бол утасны тохиргоогоор */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #060d22; --surface: #0d1937; --surface-2: #13234a; --text: #e8eefc; --muted: #93a3c8; --border: #1f335f;
+    --gold: #f2c14e; --gold-fill: #f2c14e; --gold-soft: #2c2610;
+    --ok: #3ccf85; --ok-soft: #10301f; --warn: #f5b301; --warn-soft: #33280a; --bad: #ff6368; --bad-soft: #3a1418;
+    --shadow: 0 8px 26px rgba(0, 0, 0, .35); --track: #1b2d58;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #060d22; --surface: #0d1937; --surface-2: #13234a; --text: #e8eefc; --muted: #93a3c8; --border: #1f335f;
+  --gold: #f2c14e; --gold-fill: #f2c14e; --gold-soft: #2c2610;
+  --ok: #3ccf85; --ok-soft: #10301f; --warn: #f5b301; --warn-soft: #33280a; --bad: #ff6368; --bad-soft: #3a1418;
+  --shadow: 0 8px 26px rgba(0, 0, 0, .35); --track: #1b2d58;
+  color-scheme: dark;
+}
+/* Нүдэнд ээлтэй: цэнхэр гэрэл багатай, дулаан sepia — орой, унтахын өмнө */
+:root[data-theme="comfort"] {
+  --bg: #eee4cf; --surface: #f9f2e2; --surface-2: #f1e7d0; --text: #3a2e1f; --muted: #7a6950; --border: #dfd0af;
+  --gold: #8f5f10; --gold-fill: #dca544; --gold-soft: #f4e3bd;
+  --ok: #4d7a37; --ok-soft: #e2e9cc; --warn: #9e6500; --warn-soft: #f4dfb5; --bad: #b04a3b; --bad-soft: #f3d9cd;
+  --shadow: 0 6px 22px rgba(90, 60, 20, .1); --track: #e5d8bb;
+  --topbar: linear-gradient(135deg, #4a3a28, #6b5236 60%, #86673f);
+  --toast: #3d3022;
+  color-scheme: light;
+}
+
+/* ---------- 2. Тайван бичвэр ---------- */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; font-family: 'Manrope', system-ui, sans-serif; font-size: 15px; line-height: 1.5;
+  color: var(--text); background: var(--bg); overflow-x: hidden; -webkit-tap-highlight-color: transparent;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; touch-action: manipulation; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--gold-fill); outline-offset: 2px; }
+[hidden] { display: none !important; }
+/* Гарчиг: 700-аас тод болгохгүй — "хашгирсан" харагдана */
+h1, h2, h3 { font-family: 'Montserrat', 'Manrope', sans-serif; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+h2 { font-size: 15.5px; }
+h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 18px 0 10px; }
+.num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.muted { color: var(--muted); }
+.pos { color: var(--ok); }
+.neg { color: var(--bad); }
+.note { font-size: 13.5px; color: var(--muted); margin: 10px 0 0; }
+.note b { color: var(--text); }
+
+/* ---------- Толгой мөр ---------- */
+.topbar {
+  display: grid; grid-template-columns: 1fr auto; gap: 10px 8px; align-items: center;
+  padding: calc(env(safe-area-inset-top) + 12px) 16px 12px; background: var(--topbar); color: #fff;
+}
+.top-right { display: flex; align-items: center; gap: 8px; min-width: 0; justify-self: end; }
+.who {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 999px;
+  background: rgba(255, 255, 255, .12); color: #fff; font-weight: 700; font-size: 14px;
+  max-width: 40vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+/* Нарийн дэлгэцэнд нэрийг нууж зөвхөн зураг — тоглуулагчид зай */
+@media (max-width: 420px) { .who { padding: 0 7px; } .who > span:not(.av) { display: none; } }
+
+/* ---------- 3. Хайрцаггүй (open) загвар ---------- */
+main { max-width: 1120px; margin: 0 auto; padding: 14px 16px calc(100px + env(safe-area-inset-bottom)); }
+.view { display: grid; gap: 30px; }
+.view > * { min-width: 0; }
+/* "Карт" нь хүрээ, дэвсгэр, сүүдэргүй — арын дэвсгэр бүхэлдээ харагдана */
+.card { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 4px 2px; }
+.view > .card + .card::before {
+  content: ''; display: block; height: 1px; margin: -16px 0 16px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--muted) 30%, transparent) 20%, color-mix(in srgb, var(--muted) 30%, transparent) 80%, transparent);
+}
+.card h2 { margin-bottom: 4px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+/* Хүснэгтийн оронд: мөр бүр нимгэн зураастай жагсаалт */
+.list { list-style: none; margin: 0; padding: 0; }
+.list > li { padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.list > li:last-child { border-bottom: 0; }
+details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 6px; }
+summary { cursor: pointer; font-size: 13.5px; font-weight: 700; color: var(--muted); min-height: 36px; display: flex; align-items: center; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: '▾'; margin-left: 6px; transition: transform .2s; }
+details[open] summary::after { transform: rotate(180deg); }
+
+/* ---------- 4. Бүрэлдэхүүн ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; padding: 0 16px;
+  border-radius: 14px; font-weight: 700; background: var(--surface-2); border: 1.5px solid var(--border);
+}
+.btn.primary { background: linear-gradient(180deg, #f8d676, #e8ad2a); color: #2a1c00; border-color: transparent; }
+.btn.block { width: 100%; }
+.btn.armed { background: var(--bad); color: #fff; border-color: transparent; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 16px; background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+.seg button { min-height: 46px; border-radius: 12px; font-weight: 700; font-size: 15px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
+
+/* Профайл зураг: зураг байвал зураг, үгүй бол эможи (ui.js → avatar()) */
+.av { display: inline-grid; place-items: center; border-radius: 50%; object-fit: cover; vertical-align: middle; flex: 0 0 auto; background: var(--gold-soft); }
+.av-e { line-height: 1; }
+.av.xs { width: 18px; height: 18px; font-size: 12px; vertical-align: -4px; }
+.av.sm { width: 26px; height: 26px; font-size: 16px; }
+.av.md { width: 36px; height: 36px; font-size: 18px; }
+.av.xl { width: 72px; height: 72px; font-size: 38px; box-shadow: 0 0 0 3px var(--gold-fill); }
+.who .av { box-shadow: 0 0 0 2px rgba(255, 255, 255, .5); }
+.profile { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+.avatar-pick { position: relative; cursor: pointer; flex: 0 0 auto; }
+.avatar-cam {
+  position: absolute; right: -2px; bottom: -2px; width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 50%; font-size: 13px; background: var(--gold-fill); border: 2px solid var(--surface);
+}
+label.btn { cursor: pointer; }
+
+/* Сэдэв сонгогч: өнгөний дээжтэй 3 хавтан */
+.theme-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.theme-pick button {
+  display: grid; justify-items: center; align-content: center; gap: 8px; min-height: 92px; padding: 10px 4px;
+  border-radius: 16px; border: 2px solid var(--border); background: var(--surface-2);
+  font-size: 13px; font-weight: 700; line-height: 1.2; text-align: center; color: var(--muted);
+}
+.theme-pick button[aria-checked="true"] { border-color: var(--gold-fill); background: var(--gold-soft); color: var(--text); }
+.sw { position: relative; width: 40px; height: 40px; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 1px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .12); }
+.sw i { position: absolute; right: 0; bottom: 0; width: 50%; height: 50%; border-top-left-radius: 100%; }
+.sw-light { background: linear-gradient(135deg, #edf2fb 50%, #0a2461 50%); }
+.sw-light i { background: #f2c14e; }
+.sw-dark { background: linear-gradient(135deg, #0d1937 50%, #060d22 50%); }
+.sw-dark i { background: #f2c14e; }
+.sw-comfort { background: linear-gradient(135deg, #f9f2e2 50%, #6b5236 50%); }
+.sw-comfort i { background: #dca544; }
+
+/* Арын дэвсгэр сонгогч (backdrop.js) */
+canvas.backdrop { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+.backdrop-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.backdrop-pick button {
+  display: grid; justify-items: center; gap: 2px; min-height: 72px; padding: 8px 4px; border-radius: 16px;
+  border: 2px solid var(--border); background: var(--surface-2); font-size: 12.5px; font-weight: 600; color: var(--muted); line-height: 1.2;
+}
+.backdrop-pick button small { font-size: 11px; font-weight: 500; }
+.backdrop-pick .bd-e { font-size: 22px; line-height: 1.1; }
+.backdrop-pick button[aria-checked="true"] { border-color: var(--gold-fill); background: var(--gold-soft); color: var(--text); }
+
+/* Хөгжим: уур амьсгал сонгогч, дууны хэмжээ */
+.music-now { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.music-now small { color: var(--muted); font-size: 12.5px; }
+.mood-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.mood-pick button {
+  min-height: 36px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: var(--surface-2); color: var(--muted); border: 1.5px solid transparent;
+}
+.mood-pick button[aria-checked="true"] { border-color: var(--gold-fill); background: var(--gold-soft); color: var(--text); }
+.vol-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.vol-row input { flex: 1; accent-color: var(--gold-fill); min-height: 32px; }
+.yt-links { display: grid; gap: 8px; margin-top: 10px; }
+.yt-links label { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.yt-links input {
+  min-height: 42px; padding: 0 12px; border-radius: 12px; font-size: 14px; min-width: 0;
+  border: 1.5px solid var(--border); background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+
+/* YouTube тоглуулагч — дээд мөрөнд, профайлын хажууд (юу ч халхлахгүй) */
+.yt-mini {
+  position: relative; flex: 0 0 auto; width: 72px; height: 40px; border-radius: 10px; overflow: hidden;
+  background: rgba(255, 255, 255, .12); box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .25);
+}
+.yt-frame { position: absolute; inset: 0; }
+.yt-frame iframe { display: block; width: 100%; height: 100%; border: 0; pointer-events: none; }
+.yt-tap { position: absolute; inset: 0; display: grid; place-items: end; padding: 3px; }
+.yt-badge {
+  display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 6px;
+  background: rgba(6, 13, 34, .7); color: #fff; font-size: 11px; line-height: 1;
+}
+.yt-mini.wait .yt-tap { place-items: center; background: rgba(6, 13, 34, .35); }
+.yt-mini.wait .yt-badge { font-size: 15px; height: 26px; min-width: 26px; animation: note-bob 1.6s ease-in-out infinite; }
+.yt-mini.off { width: 40px; border-radius: 50%; }
+.yt-mini.off .yt-frame { visibility: hidden; }
+.yt-mini.off .yt-tap { place-items: center; }
+.yt-mini.off .yt-badge { background: none; font-size: 17px; }
+@keyframes note-bob { 50% { transform: translateY(-2px) rotate(-8deg); } }
+@media (max-width: 360px) { .yt-mini { width: 60px; height: 34px; } }
+
+/* Доороос гарах цонх (<dialog class="sheet">) */
+.sheet {
+  width: 100%; max-width: 520px; max-height: 92dvh; margin: auto auto 0; padding: 0; border: 0; overflow: hidden;
+  border-radius: 26px 26px 0 0; background: var(--surface); color: var(--text); box-shadow: 0 -10px 40px rgba(0, 0, 0, .3);
+}
+.sheet[open] { animation: sheet-up .3s cubic-bezier(.2, 1, .3, 1); }
+.sheet::backdrop { background: rgba(4, 10, 30, .55); }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; }
+.icon-x { width: 40px; height: 40px; border-radius: 12px; background: var(--surface-2); font-size: 16px; }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@media (min-width: 720px) { .sheet { margin: auto; border-radius: 26px; } }
+
+/* Профайл зураг тайрагч (cropper.js) */
+.crop .crop-wrap { display: grid; gap: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.crop-stage {
+  position: relative; width: min(100%, 340px); aspect-ratio: 1; margin: 0 auto; overflow: hidden;
+  border-radius: 20px; background: #0b0f1c; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none;
+}
+.crop-stage img { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; -webkit-user-drag: none; }
+.crop-ring { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; box-shadow: 0 0 0 999px rgba(5, 10, 25, .58); outline: 2px solid rgba(255, 255, 255, .85); outline-offset: -2px; }
+.crop-zoom { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.crop-zoom input { flex: 1; accent-color: var(--gold-fill); height: 32px; }
+.crop-hint { margin: 0; text-align: center; font-size: 12.5px; color: var(--muted); }
+.crop-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+
+/* Toast: "Буцаах" товчтой, доороосоо гүйх зурвастай */
+.toasts {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 60;
+  width: min(440px, calc(100% - 32px)); display: grid; gap: 8px; pointer-events: none;
+}
+.toast {
+  position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  padding: 11px 14px; border-radius: 16px; background: var(--toast); color: #fff; font-weight: 500; font-size: 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .3); pointer-events: auto; animation: toast-in .25s ease; border: 1px solid rgba(255, 255, 255, .08);
+}
+.toast.err { background: #5b1418; }
+.toast button { flex: 0 0 auto; min-height: 38px; padding: 0 12px; border-radius: 10px; color: #f8d676; font-weight: 700; background: rgba(255, 255, 255, .1); }
+.toast .t-bar { position: absolute; left: 0; bottom: 0; height: 3px; background: #f2c14e; animation: t-bar linear forwards; }
+.toast.leave { opacity: 0; transform: translateY(8px); transition: all .2s ease; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes t-bar { from { width: 100%; } to { width: 0; } }
+
+/* Баярын цонх, эможи бороо, конфетти (celebrate.js, confetti.js) */
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 90; }
+.celebrate {
+  position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px;
+  background: rgba(4, 10, 30, .55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); animation: fade-in .2s ease;
+}
+.celebrate.leave { opacity: 0; transition: opacity .25s ease; }
+.cel-card {
+  width: min(380px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; text-align: center; padding: 22px 18px 16px;
+  border-radius: 28px; color: #fff; background: radial-gradient(ellipse at 50% 0%, #2a5fc0, #0c2461 60%, #081640);
+  border: 1px solid rgba(248, 214, 118, .45); box-shadow: 0 30px 80px rgba(0, 0, 0, .45); animation: cel-in .5s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+.cel-img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 18px; margin-bottom: 8px; }
+.cel-emoji { font-size: 64px; line-height: 1.1; animation: cel-bounce 1.4s ease-in-out infinite; }
+.cel-title { font-family: 'Montserrat', 'Manrope', sans-serif; font-weight: 700; font-size: 20px; margin-top: 6px; }
+.cel-amount { font-size: 34px; font-weight: 700; color: #7cf0b4; margin-top: 4px; }
+.cel-sub { font-size: 13.5px; opacity: .8; margin-top: 2px; }
+.cel-lines { list-style: none; margin: 14px 0 0; padding: 10px 12px; border-radius: 16px; background: rgba(255, 255, 255, .08); text-align: left; }
+.cel-lines li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; font-size: 14px; font-weight: 600; animation: line-in .4s ease both; animation-delay: calc(.35s + var(--i) * .12s); }
+.cel-lines b { color: #ffd978; }
+.cel-foot { margin: 12px 0 14px; font-size: 14px; font-weight: 700; color: #ffd978; }
+.cel-actions { display: grid; grid-template-columns: auto 1fr; gap: 8px; }
+.cel-ok { min-height: 52px; font-size: 16px; }
+.cel-undo { min-height: 52px; padding: 0 14px; border-radius: 14px; font-weight: 700; color: #f8d676; background: rgba(255, 255, 255, .1); }
+.emoji-rain { position: fixed; inset: 0; pointer-events: none; z-index: 85; overflow: hidden; }
+.emoji-rain span { position: absolute; top: -60px; animation: rain linear forwards; will-change: transform; }
+@keyframes rain { to { transform: translate(var(--sway), calc(100vh + 120px)) rotate(var(--spin)); } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes cel-in { from { opacity: 0; transform: scale(.7) translateY(30px); } }
+@keyframes cel-bounce { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.08); } }
+@keyframes line-in { from { opacity: 0; transform: translateX(-14px); } }
+
+/* Хөдөлгөөн багасгах тохиргоо */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  .toast .t-bar { animation-duration: var(--ms) !important; }
+}
