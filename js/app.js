@@ -2,7 +2,7 @@ import {
   TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf, expenseAccount,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
   fmt, fmtNum, fmtShort, fmtSigned, incomeSplits, MINUS, parseAmount, describe,
-  applyIncomeTypes, cleanAlloc, splitByPct, allocLabel, DEFAULT_SOURCES,
+  applyIncomeTypes, cleanAlloc, splitByPct, allocLabel, DEFAULT_SOURCES, accountKey, accountOf, MERGED_INTO,
 } from './finance.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { SupabaseStore, LocalStore } from './store.js';
@@ -305,7 +305,7 @@ function renderQuickControls() {
     <button type="button" class="cat" data-cat="${c.key}" aria-pressed="false">
       <span class="e">${c.emoji}</span>${esc(c.name)}
     </button>`).join('');
-  // Зарлагыг аль данснаас гаргах: өрх (үндсэн) эсвэл хуримтлалын 4 данс
+  // Зарлагыг аль данснаас гаргах: өрх (үндсэн), 🎯 зорилтот эсвэл 🛡️ эрсдэлийн сан
   $('#accs').hidden = !isExp;
   $('#accs').innerHTML = isExp ? `<span class="accs-label">Аль данснаас:</span>${ACCOUNTS.map((a) => `
     <button type="button" class="acc" data-acc="${a.key}" style="--c:${a.color}" aria-pressed="false">${a.emoji} ${esc(a.short)}</button>`).join('')}` : '';
@@ -385,7 +385,7 @@ function updateQuick() {
       text = '🏆 4 саяын зорилт яг биелнэ!';
       cls = 'ok';
     } else {
-      text = `🎁 Илүүдэл ${fmt(after - TARGET)} 4 дансанд эзлэх хувиараа хуваагдана`;
+      text = `🎁 Илүүдэл ${fmt(after - TARGET)} 🎯 Зорилтот, 🛡️ Эрсдэлийн санд тэнцүү хуваагдана`;
       cls = 'ok';
     }
   }
@@ -583,11 +583,23 @@ function renderOverview() {
 
 // ---------- Хуваарилалтын даалгавар ----------
 // Орлого бүрийн хуваарилалтыг данс бүрт шилжүүлэх даалгавар. Шилжүүлээд "Байршуулсан" дарна.
+// Хуучин 🏦 хадгаламж, ✈️ аяллын байршуулсан тэмдэглэл 🎯 зорилтот даалгаварт нэгдэнэ.
+// Нэгдсэн дансны зөвхөн нэг хэсэг нь байршсан бол үлдсэн дүнгээр даалгавар үлдэнэ.
 function incomeTasks(r) {
   const split = S.splits[r.id] || {};
-  const done = Object.fromEntries(S.transfers.filter((t) => t.income_id === r.id).map((t) => [t.account, t]));
-  return ACCOUNTS.filter((a) => split[a.key] > 0 || done[a.key])
-    .map((a) => ({ acc: a, amount: done[a.key]?.amount ?? split[a.key], done: done[a.key] || null }));
+  const rows = S.transfers.filter((t) => t.income_id === r.id);
+  return ACCOUNTS.map((a) => {
+    const mine = rows.filter((t) => accountKey(t.account) === a.key)
+      .sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)));
+    const amount = split[a.key] || 0;
+    if (!amount && !mine.length) return null;
+    const doneSum = mine.reduce((sum, t) => sum + t.amount, 0);
+    // Хадгалах түлхүүр: (income_id, account) давтагдахгүй тул нэгдсэн дансны чөлөөтэй хуучин түлхүүрийг ашиглана
+    const keys = [a.key, ...Object.keys(MERGED_INTO).filter((k) => MERGED_INTO[k] === a.key)];
+    const storeKey = keys.find((k) => !mine.some((t) => t.account === k));
+    if (mine.length && (doneSum >= amount || !storeKey)) return { acc: a, amount: doneSum, done: mine.at(-1), rows: mine };
+    return { acc: a, amount: amount - doneSum, done: null, partial: doneSum, storeKey };
+  }).filter(Boolean);
 }
 
 function renderTasks() {
@@ -639,7 +651,8 @@ function taskRow(r, t) {
         <div class="tx-title"><span class="task-ei" aria-hidden="true">${t.acc.emoji} </span>${t.acc.name}</div>
         <div class="task-sub">
           <button type="button" class="task-amt num" data-copy="${t.amount}" title="Дүнг хуулах">${fmt(t.amount)}</button>
-          ${t.done ? `<span class="tx-sub">${av(who, 'xs')} ${esc(who.name)} · ${fmtTime(t.done.created_at)}</span>` : ''}
+          ${t.done ? `<span class="tx-sub">${av(who, 'xs')} ${esc(who.name)} · ${fmtTime(t.done.created_at)}</span>`
+            : t.partial ? `<span class="tx-sub">үлдсэн · ${fmt(t.partial)} байршсан</span>` : ''}
         </div>
       </div>
       ${t.done
@@ -654,7 +667,7 @@ async function markDone(incomeId, account) {
   const key = `${incomeId}:${account || '*'}`;
   if (!income || S.busy.has(key)) return;
   const items = incomeTasks(income).filter((t) => !t.done && (!account || t.acc.key === account))
-    .map((t) => ({ account: t.acc.key, amount: t.amount }));
+    .map((t) => ({ account: t.storeKey, amount: t.amount }));
   if (!items.length) return;
 
   S.busy.add(key);
@@ -663,7 +676,7 @@ async function markDone(incomeId, account) {
     const rows = await S.store.markDone(income, items);
     S.transfers.push(...rows);
     const left = incomeTasks(income).filter((t) => !t.done).length;
-    const a = ACC[items[0].account];
+    const a = accountOf(items[0].account);
     toast(!left ? '🎉 Энэ орлогын хуваарилалт бүрэн байршлаа!'
       : items.length === 1 ? `✅ ${a.emoji} ${a.name} ${fmt(items[0].amount)} байршлаа` : `✅ ${items.length} данс байршлаа`,
     { undo: () => undoDone(incomeId, rows) });
@@ -682,7 +695,7 @@ async function markDone(incomeId, account) {
 // rows: transfers мөрүүд, эсвэл дансны түлхүүр (✓ товчноос)
 async function undoDone(incomeId, rows) {
   const income = S.incomes.find((r) => r.id === incomeId);
-  if (typeof rows === 'string') rows = S.transfers.filter((t) => t.income_id === incomeId && t.account === rows);
+  if (typeof rows === 'string') rows = S.transfers.filter((t) => t.income_id === incomeId && accountKey(t.account) === rows);
   if (!income || !rows.length) return;
   try {
     await S.store.undoDone(income, rows);
@@ -835,7 +848,7 @@ function renderHistory() {
       </table>
     </div>
     <p class="note">“Шилжсэн” — өрхийн дансанд сарын эцэст үлдсэн (хасах бол хэтэрсэн) дүн. Энэ нь дараа сарын өрхийн дансанд нэмэгдэнэ.</p>
-    <p class="note">“Зарлага” — өрхийн дансны зарлага. “💸 Сангаас” — хадгаламж, аялал, зорилтот, эрсдэлийн данснаас гаргасан зарлага; “Үлдэгдэл” мөрөнд хасагдсан.</p>`
+    <p class="note">“Зарлага” — өрхийн дансны зарлага. “💸 Сангаас” — зорилтот, эрсдэлийн данснаас гаргасан зарлага; “Үлдэгдэл” мөрөнд хасагдсан.</p>`
     : '<p class="empty">Түүх хоосон байна</p>'}`;
 }
 
@@ -1269,7 +1282,7 @@ function renderTypeTotals() {
     const sp = a ? splitByPct(500_000, a) : null;
     ex.textContent = sp
       ? `500,000₮ → ${ACCOUNTS.filter((x) => sp[x.key]).map((x) => `${x.emoji} ${fmtNum(sp[x.key])}`).join(' · ')}`
-      : e.custom ? '' : '60 / 10 / 5 / 5 / 20 · сард 4 саяас илүү бол илүүдэл хуримтлалын 4 дансанд';
+      : e.custom ? '' : '🏠 60 / 🎯 20 / 🛡️ 20 · сард 4 саяас илүү бол илүүдэл 🎯, 🛡️ дансанд тэнцүү';
   }
   const btn = $('#type-save');
   btn.disabled = !ok;
@@ -1371,12 +1384,13 @@ function renderMore() {
       <thead><tr><th>Данс</th><th>Хувь</th><th>4 саяас</th></tr></thead>
       <tbody>${ACCOUNTS.map((a) => `<tr><td>${a.emoji} ${a.name}</td><td>${a.pct}%</td><td>${fmtNum((TARGET * a.pct) / 100)}</td></tr>`).join('')}</tbody>
     </table>
-    <p class="note">• <b>4 саяас илүү</b> бол илүүдлийг өрхөөс бусад 4 дансанд <b>эзлэх хувиар нь</b> (10:5:5:20 → 25% / 12.5% / 12.5% / 50%) нэмнэ.
-      Жишээ: 600,000₮ илүүдэл → 🏦 +150,000, ✈️ +75,000, 🎯 +75,000, 🛡️ +300,000.</p>
+    <p class="note">• <b>4 саяас илүү</b> бол илүүдлийг 🎯 Зорилтот, 🛡️ Эрсдэлийн санд <b>тэнцүү</b> (20:20 → 50% / 50%) нэмнэ.
+      Жишээ: 600,000₮ илүүдэл → 🎯 +300,000, 🛡️ +300,000.</p>
+    <p class="note">• 🏦 Хадгаламж, ✈️ Аялал дансууд 🎯 <b>Зорилтот</b> дансанд нэгдсэн — өмнөх үлдэгдэл, зарлага нь Зорилтот дансанд нийлж тооцогдоно.</p>
     <p class="note">• <b>4 саяас бага</b> бол дээрх хувиар хуваана. Бутархай үлдэгдэл 🛡️ эрсдэлийн санд.</p>
     <p class="note">• 💼 Орлогын төрөл бүрт <b>өөрийн хувь</b> тохируулж болно (дээрх “Орлогын төрөл” хэсэг). Тэр төрлийн орлого 4 саяын дүрэмд орохгүй, шууд тохируулсан хувиар хуваагдана.</p>
-    <p class="note">• 🏠 Өрхийн дансны үлдэгдэл дараа сард шилжинэ, хэтэрсэн бол дараа сараас хасагдана. Бусад 4 данс хуримтлагдана.</p>
-    <p class="note">• 💸 Зарлага бүртгэхдээ <b>“Аль данснаас”</b>-ыг сонгоно. 🏦 ✈️ 🎯 🛡️ данснаас гаргасан зарлага тухайн дансны хуримтлалаас хасагдана, өрхийн дансанд нөлөөлөхгүй.</p>`;
+    <p class="note">• 🏠 Өрхийн дансны үлдэгдэл дараа сард шилжинэ, хэтэрсэн бол дараа сараас хасагдана. 🎯 Зорилтот, 🛡️ Эрсдэлийн сан хуримтлагдана.</p>
+    <p class="note">• 💸 Зарлага бүртгэхдээ <b>“Аль данснаас”</b>-ыг сонгоно. 🎯 🛡️ данснаас гаргасан зарлага тухайн дансны хуримтлалаас хасагдана, өрхийн дансанд нөлөөлөхгүй.</p>`;
 
   $$('#theme-seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeSet === getTheme())));
 }
@@ -1392,7 +1406,7 @@ function tickerMessages() {
   const b = r.balances;
   const sar = `${monthLabel(S.month, false)}ын`;
   const m = [];
-  if (r.income > TARGET) m.push(`🎉 Илүүдэл ${fmt(r.excess)} — хуримтлалын 4 дансанд хуваагдлаа!`);
+  if (r.income > TARGET) m.push(`🎉 Илүүдэл ${fmt(r.excess)} — 🎯 Зорилтот, 🛡️ Эрсдэлийн санд хуваагдлаа!`);
   if (r.income >= TARGET) m.push(`🏆 ${sar} 4 саяын зорилт биелсэн! Гайхалтай!`);
   else if (r.income > 0) m.push(`💪 Зорилт хүртэл ${fmt(TARGET - r.income)} л үлдлээ`);
   else m.push('🌅 Шинэ сар — эхний орлогоо бүртгээрэй');
@@ -1405,10 +1419,9 @@ function tickerMessages() {
   else if (ratio >= 0.9) m.push(`👀 Өрхийн дансны ${Math.round(ratio * 100)}%-ийг зарцуулсан — бага зэрэг хэмнэе`);
   else if (r.spent > 0 && ratio < 0.7) m.push(`🌿 Хэмнэлттэй байна — өрхийн дансны ${Math.round(ratio * 100)}%-ийг л зарцуулсан`);
 
-  if (b.savings >= 1_000_000) m.push(`🏦 Хадгаламж ${fmt(b.savings)} — 1 сая давсан!`);
+  if (b.goal >= 1_000_000) m.push(`🎯 Зорилтот данс ${fmt(b.goal)} — 1 сая давсан!`);
   if (r.carryIn > 0) m.push(`🌱 Өмнөх сараас ${fmt(r.carryIn)} шилжиж ирсэн`);
   if (b.risk > 0) m.push(`🛡️ Эрсдэлийн сан ${fmt(b.risk)} — тайван байна`);
-  if (b.travel > 0) m.push(`✈️ Аяллын санд ${fmt(b.travel)} хуримтлагдлаа`);
   if (b.goal > 0) m.push(`🎯 Зорилтот санд ${fmt(b.goal)} — мөрөөдөлдөө ойртож байна`);
 
   const saved = SAVING_KEYS.reduce((s, k) => s + b[k], 0);

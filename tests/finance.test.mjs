@@ -4,41 +4,41 @@ import { allocate, allocDelta, incomeSplits, buildLedger, fmt, fmtShort, fmtSign
 import * as fx from './fixture.mjs';
 import { describe as describeRow } from '../js/finance.js';
 
-const pick = (a) => ({ household: a.household, savings: a.savings, travel: a.travel, goal: a.goal, risk: a.risk });
-const sum = (a) => a.household + a.savings + a.travel + a.goal + a.risk;
+const pick = (a) => ({ household: a.household, goal: a.goal, risk: a.risk });
+const sum = (a) => a.household + a.goal + a.risk;
 
 test('4,000,000₮ — яг зорилтоор хуваагдана', () => {
   const a = allocate(4_000_000);
-  assert.deepEqual(pick(a), { household: 2_400_000, savings: 400_000, travel: 200_000, goal: 200_000, risk: 800_000 });
+  assert.deepEqual(pick(a), { household: 2_400_000, goal: 800_000, risk: 800_000 });
   assert.equal(a.excess, 0);
 });
 
-test('4,600,000₮ — илүүдэл 600,000₮ өрхөөс бусад 4 дансанд эзлэх хувиар', () => {
+test('4,600,000₮ — илүүдэл 600,000₮ өрхөөс бусад 2 дансанд эзлэх хувиар', () => {
   const a = allocate(4_600_000);
   assert.equal(a.excess, 600_000);
-  // 10:5:5:20 → 150,000 / 75,000 / 75,000 / 300,000
-  assert.deepEqual(pick(a), { household: 2_400_000, savings: 550_000, travel: 275_000, goal: 275_000, risk: 1_100_000 });
+  // 20:20 → 300,000 / 300,000
+  assert.deepEqual(pick(a), { household: 2_400_000, goal: 1_100_000, risk: 1_100_000 });
   assert.equal(sum(a), 4_600_000);
 });
 
 test('3,800,000₮ — хувиар пропорциональ', () => {
   const a = allocate(3_800_000);
-  assert.deepEqual(pick(a), { household: 2_280_000, savings: 380_000, travel: 190_000, goal: 190_000, risk: 760_000 });
+  assert.deepEqual(pick(a), { household: 2_280_000, goal: 760_000, risk: 760_000 });
   assert.equal(a.excess, 0);
 });
 
 test('бутархай үлдэгдэл эрсдэлийн санд орно', () => {
   const a = allocate(3_333_333);
   assert.equal(sum(a), 3_333_333);
-  assert.deepEqual(pick(a), { household: 1_999_999, savings: 333_333, travel: 166_666, goal: 166_666, risk: 666_669 });
+  assert.deepEqual(pick(a), { household: 1_999_999, goal: 666_666, risk: 666_668 });
 
   const b = allocate(4_000_001);
   assert.equal(b.excess, 1);
   assert.equal(b.risk, 800_001);
   assert.equal(sum(b), 4_000_001);
 
-  const c = allocate(4_000_030); // 30 → 7.5 / 3.75 / 3.75 / 15 → 7 / 3 / 3 / 15 + 2
-  assert.deepEqual(pick(c), { household: 2_400_000, savings: 400_007, travel: 200_003, goal: 200_003, risk: 800_017 });
+  const c = allocate(4_000_031); // 31 → 15.5 / 15.5 → 15 / 15 + 1
+  assert.deepEqual(pick(c), { household: 2_400_000, goal: 800_015, risk: 800_016 });
 });
 
 test('0 ба сөрөг орлого', () => {
@@ -89,12 +89,10 @@ test('өрхийн дансны үлдэгдэл дараа сард шилжи�
   assert.equal(at('2026-10').income, 0);
   assert.equal(at('2026-10').available, 360_500);
 
-  // Бусад 4 данс хуримтлагдана
+  // Зорилтот, эрсдэлийн сан хуримтлагдана
   assert.deepEqual(at('2026-09').balances, {
     household: 360_500,
-    savings: 400_000 + 550_000 + 380_000,
-    travel: 200_000 + 275_000 + 190_000,
-    goal: 200_000 + 275_000 + 190_000,
+    goal: 800_000 + 1_100_000 + 760_000,
     risk: 800_000 + 1_100_000 + 760_000,
   });
 });
@@ -124,7 +122,7 @@ test('хоосон сар дундуур байсан ч шилжилт үргэ
   assert.equal(L[1].carryIn, 500_000);
   assert.equal(L[2].income, 0);
   assert.equal(L[2].householdLeft, 450_000);
-  assert.equal(L[2].balances.savings, 100_000);
+  assert.equal(L[2].balances.goal, 200_000);
 });
 
 test('формат ба туслах функцууд', () => {
@@ -155,7 +153,7 @@ function rng(seed) {
 
 test('санамсаргүй 20,000 дүн: нийлбэр хадгалагдана, хувь ба илүүдлийн дүрэм биелнэ', () => {
   const r = rng(42);
-  const PCT = { household: 60, savings: 10, travel: 5, goal: 5, risk: 20 };
+  const PCT = { household: 60, goal: 20, risk: 20 };
   for (let i = 0; i < 20_000; i++) {
     const total = i < 200 ? i : Math.floor(r() * 12_000_000);
     const a = allocate(total);
@@ -164,7 +162,7 @@ test('санамсаргүй 20,000 дүн: нийлбэр хадгалагда�
 
     if (total <= 4_000_000) {
       assert.equal(a.excess, 0);
-      for (const k of ['household', 'savings', 'travel', 'goal']) {
+      for (const k of ['household', 'goal']) {
         assert.ok(Math.abs(a[k] - (total * PCT[k]) / 100) < 1, `${k} ${total}`);
       }
       assert.ok(a.risk - (total * 20) / 100 < 5 && a.risk >= Math.floor((total * 20) / 100), `risk ${total}`);
@@ -172,10 +170,8 @@ test('санамсаргүй 20,000 дүн: нийлбэр хадгалагда�
       const ex = total - 4_000_000;
       assert.equal(a.excess, ex);
       assert.equal(a.household, 2_400_000, `өрх илүүдэл авахгүй ${total}`);
-      // илүүдэл 10:5:5:20 харьцаагаар
-      for (const k of ['savings', 'travel', 'goal']) {
-        assert.ok(Math.abs(a[k] - (40_000 * PCT[k] + (ex * PCT[k]) / 40)) < 1, `${k} ${total}`);
-      }
+      // илүүдэл 20:20 харьцаагаар
+      assert.ok(Math.abs(a.goal - (800_000 + ex / 2)) < 1, `goal ${total}`);
       assert.ok(Math.abs(a.risk - (800_000 + ex / 2)) < 4, `risk ${total}`);
     }
   }
@@ -193,7 +189,7 @@ test('санамсаргүй 12 сарын гүйлгээ: шилжилт ба �
     }
     const L = buildLedger(incomes, expenses, { toMonth: '2027-12' });
     let carry = 0;
-    const acc = { savings: 0, travel: 0, goal: 0, risk: 0 };
+    const acc = { goal: 0, risk: 0 };
     for (const row of L) {
       const inc = incomes.filter((x) => x.date.startsWith(row.month)).reduce((s, x) => s + x.amount, 0);
       const exp = expenses.filter((x) => !x.deleted && x.date.startsWith(row.month)).reduce((s, x) => s + x.amount, 0);
@@ -217,14 +213,14 @@ test('санамсаргүй 12 сарын гүйлгээ: шилжилт ба �
 test('allocDelta: нэг орлого данс бүрт хэд нэмснийг зөв харуулна', () => {
   // 3,500,000 → 4,100,000: 500,000 нь хувиар, 100,000 нь илүүдэл
   const d = allocDelta(3_500_000, 4_100_000);
-  assert.deepEqual(d, { household: 300_000, savings: 75_000, travel: 37_500, goal: 37_500, risk: 150_000 });
+  assert.deepEqual(d, { household: 300_000, goal: 150_000, risk: 150_000 });
   assert.equal(Object.values(d).reduce((a, b) => a + b, 0), 600_000);
-  assert.deepEqual(allocDelta(0, 2_000_000), { household: 1_200_000, savings: 200_000, travel: 100_000, goal: 100_000, risk: 400_000 });
+  assert.deepEqual(allocDelta(0, 2_000_000), { household: 1_200_000, goal: 400_000, risk: 400_000 });
 });
 
-test('incomeSplits: 500,000₮ орлого → 5 дансны даалгавар', () => {
+test('incomeSplits: 500,000₮ орлого → 3 дансны даалгавар', () => {
   const sp = incomeSplits([{ id: 'a', date: '2026-10-03', amount: 500_000, created_at: '2026-10-03T05:00:00Z' }]);
-  assert.deepEqual(sp.a, { household: 300_000, savings: 50_000, travel: 25_000, goal: 25_000, risk: 100_000 });
+  assert.deepEqual(sp.a, { household: 300_000, goal: 100_000, risk: 100_000 });
 });
 
 test('incomeSplits: бүртгэсэн дарааллаар, сарын нийлбэр allocate-тэй тэнцэнэ', () => {
@@ -236,9 +232,9 @@ test('incomeSplits: бүртгэсэн дарааллаар, сарын нийл
     { id: 'n', date: '2026-11-02', amount: 1_000_000, created_at: '2026-11-02T00:00:00Z' },
   ];
   const sp = incomeSplits(incomes);
-  assert.deepEqual(sp.a, { household: 2_100_000, savings: 350_000, travel: 175_000, goal: 175_000, risk: 700_000 });
+  assert.deepEqual(sp.a, { household: 2_100_000, goal: 700_000, risk: 700_000 });
   // 3.5 сая → 4.1 сая: 500,000 хувиар + 100,000 илүүдэл
-  assert.deepEqual(sp.c, { household: 300_000, savings: 75_000, travel: 37_500, goal: 37_500, risk: 150_000 });
+  assert.deepEqual(sp.c, { household: 300_000, goal: 150_000, risk: 150_000 });
   assert.equal(sp.x, undefined);
   assert.deepEqual(sp.n, pick(allocate(1_000_000))); // шинэ сар 0-ээс эхэлнэ
 
@@ -255,10 +251,11 @@ test('incomeSplits: бүртгэсэн дарааллаар, сарын нийл
 
 test('describe: байршуулсан даалгаврын бүртгэл', () => {
   const income = { amount: 500_000, source: 'salary' };
+  // хуучин 'savings' түлхүүр зорилтот гэж уншигдана
   assert.equal(describeRow('transfer', { income, items: [{ account: 'savings', amount: 50_000 }] }),
-    '🏦 Хадгаламж 50,000₮ · 💼 Цалин +500,000₮-ийн хуваарилалт');
-  assert.equal(describeRow('transfer', { income, items: [{ account: 'travel', amount: 25_000 }, { account: 'goal', amount: 25_000 }] }),
-    '✈️ 25,000₮, 🎯 25,000₮ · 💼 Цалин +500,000₮-ийн хуваарилалт');
+    '🎯 Зорилтот 50,000₮ · 💼 Цалин +500,000₮-ийн хуваарилалт');
+  assert.equal(describeRow('transfer', { income, items: [{ account: 'goal', amount: 100_000 }, { account: 'risk', amount: 100_000 }] }),
+    '🎯 100,000₮, 🛡️ 100,000₮ · 💼 Цалин +500,000₮-ийн хуваарилалт');
 });
 
 test('хуримтлалын данснаас гаргасан зарлага тухайн дансаас хасагдана, өрхөд нөлөөлөхгүй', () => {
@@ -277,26 +274,26 @@ test('хуримтлалын данснаас гаргасан зарлага т
 
   assert.equal(jul.spent, 1_000_000);
   assert.equal(jul.householdLeft, 1_400_000);
-  assert.deepEqual(jul.withdrawn, { savings: 0, travel: 150_000, goal: 0, risk: 0 });
+  assert.deepEqual(jul.withdrawn, { goal: 150_000, risk: 0 }); // хуучин 'travel' → зорилтот
   assert.equal(jul.fundSpent, 150_000);
-  assert.deepEqual(jul.balances, { household: 1_400_000, savings: 400_000, travel: 50_000, goal: 200_000, risk: 800_000 });
+  assert.deepEqual(jul.balances, { household: 1_400_000, goal: 650_000, risk: 800_000 });
 
   assert.equal(aug.spent, 50_000);
   assert.equal(aug.householdLeft, 1_400_000 + 2_400_000 - 50_000);
   assert.equal(aug.fundSpent, 300_000);
-  assert.deepEqual(aug.balances, { household: 3_750_000, savings: 800_000, travel: 250_000, goal: 400_000, risk: 1_300_000 });
+  assert.deepEqual(aug.balances, { household: 3_750_000, goal: 1_450_000, risk: 1_300_000 });
 });
 
 test('хуримтлалын данс хасах руу орж болно (хэтэрсэн)', () => {
   const [m] = buildLedger([{ id: 'i', date: '2026-07-01', amount: 1_000_000 }],
-    [{ id: 'e', date: '2026-07-02', amount: 80_000, category: 'other', account: 'travel' }]);
-  assert.equal(m.balances.travel, 50_000 - 80_000);
+    [{ id: 'e', date: '2026-07-02', amount: 280_000, category: 'other', account: 'goal' }]);
+  assert.equal(m.balances.goal, 200_000 - 280_000);
   assert.equal(m.householdLeft, 600_000);
 });
 
 test('describe: хуримтлалын данснаас гаргасан зарлага', () => {
   assert.equal(describeRow('expense', { amount: 450_000, category: 'transport', account: 'travel', note: 'Тийз' }),
-    '🚗 −450,000₮ зарлага · ✈️ Аяллын данснаас · Тээвэр · Тийз');
+    '🚗 −450,000₮ зарлага · 🎯 Зорилтот данснаас · Тээвэр · Тийз');
   assert.equal(describeRow('expense', { amount: 45_000, category: 'food', account: 'household', note: '' }), '🛒 −45,000₮ зарлага · Хүнс');
 });
 
@@ -304,7 +301,9 @@ test('describe: хуримтлалын данснаас гаргасан зар�
 import { cleanAlloc, splitByPct, applyIncomeTypes, sourceOf as srcOf, allocLabel } from '../js/finance.js';
 
 test('cleanAlloc: нийлбэр 100, бүхэл, 0–100 байх ёстой', () => {
-  assert.deepEqual(cleanAlloc({ household: 0, savings: 50, travel: 50 }), { household: 0, savings: 50, travel: 50, goal: 0, risk: 0 });
+  assert.deepEqual(cleanAlloc({ household: 0, goal: 50, risk: 50 }), { household: 0, goal: 50, risk: 50 });
+  // хуучин хадгаламж/аяллын хувь зорилтот руу нэгдэнэ
+  assert.deepEqual(cleanAlloc({ household: 0, savings: 50, travel: 25, goal: 25 }), { household: 0, goal: 100, risk: 0 });
   assert.equal(cleanAlloc({ household: 60, savings: 30 }), null);   // 90
   assert.equal(cleanAlloc({ household: 50.5, savings: 49.5 }), null);
   assert.equal(cleanAlloc({ household: 120, savings: -20 }), null);
@@ -312,14 +311,15 @@ test('cleanAlloc: нийлбэр 100, бүхэл, 0–100 байх ёстой', 
 });
 
 test('splitByPct: үлдэгдэл хамгийн их хувьтай дансанд, нийлбэр хадгалагдана', () => {
-  const sp = splitByPct(100_001, { household: 0, savings: 50, travel: 25, goal: 25, risk: 0 });
-  assert.deepEqual(sp, { household: 0, savings: 50_001, travel: 25_000, goal: 25_000, risk: 0 });
-  assert.equal(allocLabel({ household: 0, savings: 50, travel: 25, goal: 25, risk: 0 }), '🏦 50% · ✈️ 25% · 🎯 25%');
+  const sp = splitByPct(100_001, { household: 0, goal: 50, risk: 50 });
+  assert.deepEqual(sp, { household: 0, goal: 50_001, risk: 50_000 });
+  assert.equal(allocLabel({ household: 0, goal: 50, risk: 50 }), '🎯 50% · 🛡️ 50%');
+  assert.equal(allocLabel({ savings: 10, travel: 5, goal: 5, household: 60, risk: 20 }), '🏠 60% · 🎯 20% · 🛡️ 20%');
   assert.equal(allocLabel(null), 'стандарт дүрэм');
 });
 
 test('өөрийн хувьтай орлого 4 саяын дүрэмд орохгүй, шууд хувиар хуваагдана', () => {
-  const bonus = { household: 0, savings: 50, travel: 50, goal: 0, risk: 0 };
+  const bonus = { household: 0, goal: 50, risk: 50 };
   const incomes = [
     { id: 's', date: '2026-10-01', amount: 4_000_000, source: 'salary', created_at: '2026-10-01T00:00:00Z' },
     { id: 'b', date: '2026-10-10', amount: 600_000, source: 'bonus', alloc: bonus, created_at: '2026-10-10T00:00:00Z' },
@@ -327,10 +327,10 @@ test('өөрийн хувьтай орлого 4 саяын дүрэмд оро�
   const [row] = buildLedger(incomes, []);
   assert.equal(row.income, 4_600_000);
   assert.equal(row.excess, 0); // урамшуулал илүүдэлд тооцогдохгүй
-  assert.deepEqual(pick(row.alloc), { household: 2_400_000, savings: 700_000, travel: 500_000, goal: 200_000, risk: 800_000 });
+  assert.deepEqual(pick(row.alloc), { household: 2_400_000, goal: 1_100_000, risk: 1_100_000 });
   assert.deepEqual(pick(row.std), pick(allocate(4_000_000)));
   const sp = incomeSplits(incomes);
-  assert.deepEqual(sp.b, { household: 0, savings: 300_000, travel: 300_000, goal: 0, risk: 0 });
+  assert.deepEqual(sp.b, { household: 0, goal: 300_000, risk: 300_000 });
   for (const k of Object.keys(sp.s)) assert.equal(sp.s[k] + sp.b[k], row.alloc[k]);
 });
 
@@ -338,7 +338,7 @@ test('applyIncomeTypes: нэр, эможи, хувь; хоосон бол анх
   applyIncomeTypes([{ key: 'bonus', name: '  Шагнал ', emoji: '🏆', alloc: { savings: 100 } }, { key: 'side', name: '', alloc: { savings: 40 } }]);
   assert.equal(srcOf('bonus').name, 'Шагнал');
   assert.equal(srcOf('bonus').emoji, '🏆');
-  assert.deepEqual(srcOf('bonus').alloc, { household: 0, savings: 100, travel: 0, goal: 0, risk: 0 });
+  assert.deepEqual(srcOf('bonus').alloc, { household: 0, goal: 100, risk: 0 });
   assert.equal(srcOf('side').name, 'Нэмэлт орлого');
   assert.equal(srcOf('side').alloc, null); // 40% ≠ 100 → стандарт
   applyIncomeTypes([]);

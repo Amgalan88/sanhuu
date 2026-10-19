@@ -403,7 +403,7 @@ details[open] summary::after { transform: rotate(180deg); }
 .ov-saved { margin-top: 10px; }
 .ov-saved-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 700; font-size: 14px; }
 .ov-saved-head b { font-size: 16px; }
-.ov-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.ov-chips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
 .ov-chip {
   display: grid; justify-items: center; gap: 1px; padding: 6px 2px; border-radius: 12px;
   background: var(--surface-2); border-bottom: 3px solid var(--c); font-size: 15px; min-width: 0;

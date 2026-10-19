@@ -5,13 +5,16 @@ export const TARGET = 4_000_000;
 
 export const ACCOUNTS = [
   { key: 'household', name: 'Өрхийн хэрэглээ', short: 'Өрх',       emoji: '🏠', pct: 60, color: '#f2c14e', from: 'Өрхийн данснаас' },
-  { key: 'savings',   name: 'Хадгаламж',       short: 'Хадгаламж', emoji: '🏦', pct: 10, color: '#4f8cff', from: 'Хадгаламжаас' },
-  { key: 'travel',    name: 'Аялал',           short: 'Аялал',     emoji: '✈️', pct: 5,  color: '#2ec4b6', from: 'Аяллын данснаас' },
-  { key: 'goal',      name: 'Зорилтот',        short: 'Зорилт',    emoji: '🎯', pct: 5,  color: '#b388ff', from: 'Зорилтот данснаас' },
+  { key: 'goal',      name: 'Зорилтот',        short: 'Зорилт',    emoji: '🎯', pct: 20, color: '#b388ff', from: 'Зорилтот данснаас' },
   { key: 'risk',      name: 'Эрсдэлийн сан',   short: 'Эрсдэл',    emoji: '🛡️', pct: 20, color: '#ff7a59', from: 'Эрсдэлийн сангаас' },
 ];
 
-export const SAVING_KEYS = ['savings', 'travel', 'goal', 'risk'];
+export const SAVING_KEYS = ['goal', 'risk'];
+
+// Хуучин 🏦 Хадгаламж, ✈️ Аялал дансууд 🎯 Зорилтот дансанд нэгдсэн.
+// Өмнөх бүртгэл (зарлага, байршуулсан даалгавар, хувийн тохиргоо) дахь эдгээр түлхүүрийг goal гэж уншина.
+export const MERGED_INTO = { savings: 'goal', travel: 'goal' };
+export const accountKey = (k) => MERGED_INTO[k] || k;
 
 export const EXPENSE_CATEGORIES = [
   { key: 'food',      emoji: '🛒', name: 'Хүнс' },
@@ -24,7 +27,7 @@ export const EXPENSE_CATEGORIES = [
 ];
 
 // Орлогын төрөл. name, emoji, alloc-ийг тохиргооноос (applyIncomeTypes) сольж болно.
-// alloc: null → стандарт дүрэм (4 саяын зорилт), эсвэл { household, savings, travel, goal, risk } хувь (нийлбэр 100).
+// alloc: null → стандарт дүрэм (4 саяын зорилт), эсвэл { household, goal, risk } хувь (нийлбэр 100).
 export const INCOME_SOURCES = [
   { key: 'salary', emoji: '💼', name: 'Цалин', alloc: null },
   { key: 'bonus',  emoji: '🎁', name: 'Урамшуулал', alloc: null },
@@ -33,14 +36,16 @@ export const INCOME_SOURCES = [
 ];
 export const DEFAULT_SOURCES = Object.fromEntries(INCOME_SOURCES.map((s) => [s.key, { ...s }]));
 
-/** Хувийн хуваарилалт зөв эсэх: 5 данс, 0–100 бүхэл, нийлбэр 100. Зөв бол цэвэрлэсэн хуулбар, үгүй бол null. */
+/** Хувийн хуваарилалт зөв эсэх: 3 данс (хуучин түлхүүрийг нэгтгэнэ), 0–100 бүхэл, нийлбэр 100. Зөв бол цэвэрлэсэн хуулбар, үгүй бол null. */
 export function cleanAlloc(a) {
   if (!a || typeof a !== 'object') return null;
-  const out = {};
-  for (const { key } of ACCOUNTS) {
-    const v = Number(a[key] ?? 0);
+  const out = Object.fromEntries(ACCOUNTS.map((x) => [x.key, 0]));
+  for (const [k, raw] of Object.entries(a)) {
+    const key = accountKey(k);
+    if (!(key in out)) continue;
+    const v = Number(raw ?? 0);
     if (!Number.isInteger(v) || v < 0 || v > 100) return null;
-    out[key] = v;
+    out[key] += v; // хуучин хадгаламж/аяллын хувь зорилтот руу нэмэгдэнэ
   }
   return Object.values(out).reduce((x, y) => x + y, 0) === 100 ? out : null;
 }
@@ -76,17 +81,17 @@ export function allocLabel(a) {
 export const incomeRule = (r) => cleanAlloc(r?.alloc);
 
 /** Зарлагыг аль данснаас гаргасан: хуучин мөрөнд account байхгүй бол өрхийн данс. */
-export const expenseAccount = (r) => (SAVING_KEYS.includes(r?.account) ? r.account : 'household');
+export const expenseAccount = (r) => (SAVING_KEYS.includes(accountKey(r?.account)) ? accountKey(r.account) : 'household');
 
 export const categoryOf = (key) => EXPENSE_CATEGORIES.find((c) => c.key === key) || EXPENSE_CATEGORIES.at(-1);
-export const accountOf = (key) => ACCOUNTS.find((a) => a.key === key) || ACCOUNTS[0];
+export const accountOf = (key) => ACCOUNTS.find((a) => a.key === accountKey(key)) || ACCOUNTS[0];
 export const sourceOf = (key) => INCOME_SOURCES.find((c) => c.key === key) || INCOME_SOURCES.at(-1);
 
 /**
- * Сарын нийт орлогыг 5 дансанд хуваана.
+ * Сарын нийт орлогыг 3 дансанд хуваана (🏠 60 / 🎯 20 / 🛡️ 20).
  * - 4 сая хүртэл: хувиар пропорциональ.
- * - 4 саяас илүү: 4 саяыг хувиар, илүүдлийг өрхөөс бусад 4 дансанд
- *   эзлэх хувиар нь (10:5:5:20 → 25% / 12.5% / 12.5% / 50%) нэмнэ.
+ * - 4 саяас илүү: 4 саяыг хувиар, илүүдлийг өрхөөс бусад 2 дансанд
+ *   эзлэх хувиар нь (20:20 → 50% / 50%) нэмнэ.
  * - Бутархайн үлдэгдэл эрсдэлийн санд.
  */
 export function allocate(total) {
@@ -140,7 +145,7 @@ export function monthLabel(key, withYear = true) {
 /**
  * Сар бүрийн хуваарилалт, өрхийн дансны шилжилт, хуримтлалыг тооцоолно.
  * Өрхийн дансны үлдэгдэл (хасах байж болно) дараа сарын өрхийн дансанд шилжинэ.
- * Бусад 4 данс сар бүр хуримтлагдана; тэдгээрээс гаргасан зарлага (account) тухайн дансаас хасагдана.
+ * 🎯 Зорилтот, 🛡️ Эрсдэлийн сан сар бүр хуримтлагдана; тэдгээрээс гаргасан зарлага (account) тухайн дансаас хасагдана.
  * spent — зөвхөн өрхийн дансны зарлага, withdrawn — хуримтлалын данс бүрээс гаргасан зарлага.
  */
 export function buildLedger(incomes, expenses, { toMonth } = {}) {
@@ -215,8 +220,8 @@ export function emptyMonth(month) {
   const alloc = allocate(0);
   return {
     month, income: 0, spent: 0, alloc, std: alloc, excess: 0, carryIn: 0, available: 0, householdLeft: 0,
-    withdrawn: { savings: 0, travel: 0, goal: 0, risk: 0 }, fundSpent: 0,
-    balances: { household: 0, savings: 0, travel: 0, goal: 0, risk: 0 },
+    withdrawn: Object.fromEntries(SAVING_KEYS.map((k) => [k, 0])), fundSpent: 0,
+    balances: Object.fromEntries(ACCOUNTS.map((a) => [a.key, 0])),
   };
 }
 
@@ -252,7 +257,7 @@ export function allocDelta(before, after) {
  * Орлого бүрийн хуваарилалт ("байршуулах даалгавар"). Сар бүрт бүртгэсэн дарааллаар нь
  * allocDelta(өмнөх стандарт орлогын нийлбэр, нийлбэр + энэ орлого); өөрийн хувьтай орлого бол splitByPct.
  * Сарын нийлбэр нь buildLedger-ийн alloc-той яг тэнцэнэ.
- * Буцаах: { [income.id]: { household, savings, travel, goal, risk } }
+ * Буцаах: { [income.id]: { household, goal, risk } }
  */
 export function incomeSplits(incomes) {
   const rows = incomes.filter((r) => !r.deleted).sort((a, b) =>
