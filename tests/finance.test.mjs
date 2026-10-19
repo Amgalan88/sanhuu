@@ -299,3 +299,49 @@ test('describe: хуримтлалын данснаас гаргасан зар�
     '🚗 −450,000₮ зарлага · ✈️ Аяллын данснаас · Тээвэр · Тийз');
   assert.equal(describeRow('expense', { amount: 45_000, category: 'food', account: 'household', note: '' }), '🛒 −45,000₮ зарлага · Хүнс');
 });
+
+// ---------- Орлогын төрлийн тохиргоо ----------
+import { cleanAlloc, splitByPct, applyIncomeTypes, sourceOf as srcOf, allocLabel } from '../js/finance.js';
+
+test('cleanAlloc: нийлбэр 100, бүхэл, 0–100 байх ёстой', () => {
+  assert.deepEqual(cleanAlloc({ household: 0, savings: 50, travel: 50 }), { household: 0, savings: 50, travel: 50, goal: 0, risk: 0 });
+  assert.equal(cleanAlloc({ household: 60, savings: 30 }), null);   // 90
+  assert.equal(cleanAlloc({ household: 50.5, savings: 49.5 }), null);
+  assert.equal(cleanAlloc({ household: 120, savings: -20 }), null);
+  assert.equal(cleanAlloc(null), null);
+});
+
+test('splitByPct: үлдэгдэл хамгийн их хувьтай дансанд, нийлбэр хадгалагдана', () => {
+  const sp = splitByPct(100_001, { household: 0, savings: 50, travel: 25, goal: 25, risk: 0 });
+  assert.deepEqual(sp, { household: 0, savings: 50_001, travel: 25_000, goal: 25_000, risk: 0 });
+  assert.equal(allocLabel({ household: 0, savings: 50, travel: 25, goal: 25, risk: 0 }), '🏦 50% · ✈️ 25% · 🎯 25%');
+  assert.equal(allocLabel(null), 'стандарт дүрэм');
+});
+
+test('өөрийн хувьтай орлого 4 саяын дүрэмд орохгүй, шууд хувиар хуваагдана', () => {
+  const bonus = { household: 0, savings: 50, travel: 50, goal: 0, risk: 0 };
+  const incomes = [
+    { id: 's', date: '2026-10-01', amount: 4_000_000, source: 'salary', created_at: '2026-10-01T00:00:00Z' },
+    { id: 'b', date: '2026-10-10', amount: 600_000, source: 'bonus', alloc: bonus, created_at: '2026-10-10T00:00:00Z' },
+  ];
+  const [row] = buildLedger(incomes, []);
+  assert.equal(row.income, 4_600_000);
+  assert.equal(row.excess, 0); // урамшуулал илүүдэлд тооцогдохгүй
+  assert.deepEqual(pick(row.alloc), { household: 2_400_000, savings: 700_000, travel: 500_000, goal: 200_000, risk: 800_000 });
+  assert.deepEqual(pick(row.std), pick(allocate(4_000_000)));
+  const sp = incomeSplits(incomes);
+  assert.deepEqual(sp.b, { household: 0, savings: 300_000, travel: 300_000, goal: 0, risk: 0 });
+  for (const k of Object.keys(sp.s)) assert.equal(sp.s[k] + sp.b[k], row.alloc[k]);
+});
+
+test('applyIncomeTypes: нэр, эможи, хувь; хоосон бол анхны утга', () => {
+  applyIncomeTypes([{ key: 'bonus', name: '  Шагнал ', emoji: '🏆', alloc: { savings: 100 } }, { key: 'side', name: '', alloc: { savings: 40 } }]);
+  assert.equal(srcOf('bonus').name, 'Шагнал');
+  assert.equal(srcOf('bonus').emoji, '🏆');
+  assert.deepEqual(srcOf('bonus').alloc, { household: 0, savings: 100, travel: 0, goal: 0, risk: 0 });
+  assert.equal(srcOf('side').name, 'Нэмэлт орлого');
+  assert.equal(srcOf('side').alloc, null); // 40% ≠ 100 → стандарт
+  applyIncomeTypes([]);
+  assert.equal(srcOf('bonus').name, 'Урамшуулал');
+  assert.equal(srcOf('bonus').alloc, null);
+});

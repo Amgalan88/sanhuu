@@ -1,7 +1,8 @@
 import {
   TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf, expenseAccount,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
-  fmt, fmtNum, fmtShort, fmtSigned, allocDelta, incomeSplits, MINUS, parseAmount, describe,
+  fmt, fmtNum, fmtShort, fmtSigned, incomeSplits, MINUS, parseAmount, describe,
+  applyIncomeTypes, cleanAlloc, splitByPct, allocLabel, DEFAULT_SOURCES,
 } from './finance.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { SupabaseStore, LocalStore } from './store.js';
@@ -42,7 +43,7 @@ const THEME_COLOR = { light: '#0a2461', dark: '#060d22', comfort: '#4a3a28' };
 
 const ACTION = {
   add: ['нэмсэн', 'нэмлээ'], delete: ['устгасан', 'устгалаа'], undo: ['буцаасан', 'буцаалаа'],
-  restore: ['сэргээсэн', 'сэргээлээ'], done: ['байршуулсан', 'байршууллаа'],
+  restore: ['сэргээсэн', 'сэргээлээ'], done: ['байршуулсан', 'байршууллаа'], edit: ['өөрчилсөн', 'өөрчиллөө'],
 };
 
 const S = {
@@ -62,6 +63,9 @@ const S = {
   coinMode: 'total',
   achievements: [],
   achievementsMissing: false,
+  incomeTypes: [],        // орлогын төрлийн тохиргоо { key, name, emoji, alloc, updated_by, updated_at }
+  incomeTypesMissing: false,
+  typeEdit: null,         // засаж буй төрөл (цонх)
   ach: { emoji: '🏆', blob: null },
   transfers: [],          // байршуулсан хуваарилалт { income_id, account, amount }
   transfersMissing: false,
@@ -157,6 +161,7 @@ async function enterApp() {
     buildQuick();
     wireGlobal();
     wireAchievements();
+    wireIncomeTypes();
     setView(location.hash.slice(1) || 'home', false);
     startTicker();
   }
@@ -177,6 +182,7 @@ function renderWho() {
 
 async function reload() {
   Object.assign(S, await S.store.loadAll());
+  applyTypes();
   S.me = S.store.me || S.me; // профайл зураг шинэчлэгдсэн байж болно
   renderWho();
   recompute();
@@ -187,6 +193,14 @@ let reloadTimer = 0;
 function scheduleReload(ms = 300) {
   clearTimeout(reloadTimer);
   reloadTimer = setTimeout(() => reload().catch((e) => console.warn(e)), ms);
+}
+
+// Орлогын төрлийн нэр, хуваарилалтыг хэрэглэнэ; өөрчлөгдсөн бол хурдан бүртгэлийн товчнуудыг шинэчилнэ
+let typesSig = '';
+function applyTypes() {
+  applyIncomeTypes(S.incomeTypes);
+  const sig = JSON.stringify(INCOME_SOURCES);
+  if (sig !== typesSig) { typesSig = sig; renderQuickControls(); }
 }
 
 function recompute() {
@@ -354,6 +368,13 @@ function updateQuick() {
       text = `Хадгалсны дараа өрхийн дансанд ${fmt(left)} үлдэнэ 🌿`;
       cls = 'ok';
     }
+  } else if (cat && sourceOf(cat).alloc) {
+    const s = sourceOf(cat);
+    const sp = splitByPct(amount, s.alloc);
+    text = amount
+      ? `📐 ${s.name}: ${ACCOUNTS.filter((a) => sp[a.key]).map((a) => `${a.emoji} ${fmtNum(sp[a.key])}`).join(' · ')}`
+      : `📐 ${s.name}: ${allocLabel(s.alloc)}`;
+    cls = amount ? 'ok' : '';
   } else {
     const before = S.incomes.filter((r) => monthKey(r.date) === m).reduce((s, r) => s + r.amount, 0);
     const after = before + amount;
@@ -387,7 +408,9 @@ async function save() {
   const date = $('#date').value || todayISO();
   const note = $('#note').value.trim().slice(0, 200);
   // Өрхийн зарлагад account багана илгээхгүй — expense-accounts.sql ажиллуулаагүй сан ч ажиллана
-  const fields = kind === 'income' ? { date, amount, source: cat, note }
+  // Өөрийн хувьтай төрөл бол хувийг орлогод хадгална (тохиргоо солиход түүх өөрчлөгдөхгүй)
+  const rule = kind === 'income' ? sourceOf(cat).alloc : null;
+  const fields = kind === 'income' ? { date, amount, source: cat, note, ...(rule ? { alloc: rule } : {}) }
     : acc === 'household' ? { date, amount, category: cat, note } : { date, amount, category: cat, note, account: acc };
   const m = monthKey(date);
   const incomeBefore = S.incomes.filter((r) => monthKey(r.date) === m).reduce((s, r) => s + r.amount, 0);
@@ -417,7 +440,7 @@ async function save() {
     } else {
       S.fresh = row.id;
       renderTasks();
-      celebrateIncome(cat, amount, incomeBefore, undo); // "Буцаах" нь баярын цонх дотор
+      celebrateIncome(row, incomeBefore, undo); // "Буцаах" нь баярын цонх дотор
     }
     scheduleReload(800);
   } catch (err) {
@@ -429,9 +452,10 @@ async function save() {
 }
 
 // Орлого бүртгэхэд: энэ орлого аль дансанд хэдийг нэмснийг харуулж урамшуулна
-function celebrateIncome(cat, amount, before, undo) {
+function celebrateIncome(row, before, undo) {
+  const { amount, source: cat } = row;
   const after = before + amount;
-  const d = allocDelta(before, after);
+  const d = S.splits[row.id] || {};
   const reached = before < TARGET && after >= TARGET;
   const excessNow = before <= TARGET && after > TARGET;
   const src = sourceOf(cat);
@@ -524,11 +548,11 @@ function renderSummary() {
     <details ${open}>
       <summary>Хуваарилалтын дэлгэрэнгүй</summary>
       <ul class="legend">
-        ${ACCOUNTS.map((a) => `<li style="--c:${a.color}"><span class="dot"></span><span>${a.emoji} ${a.name}<span class="pct">${a.pct}%</span></span><b class="num">${fmt(r.alloc[a.key])}</b></li>`).join('')}
+        ${ACCOUNTS.map((a) => `<li style="--c:${a.color}"><span class="dot"></span><span>${a.emoji} ${a.name}<span class="pct">${r.income ? Math.round((r.alloc[a.key] / r.income) * 100) : a.pct}%</span></span><b class="num">${fmt(r.alloc[a.key])}</b></li>`).join('')}
         <li><span></span><span>🌱 Өмнөх сараас шилжсэн</span><b class="num ${r.carryIn > 0 ? 'pos' : r.carryIn < 0 ? 'neg' : ''}">${signed(r.carryIn)}</b></li>
         ${SAVING_KEYS.filter((k) => r.withdrawn[k]).map((k) => `<li><span></span><span>💸 ${ACC[k].emoji} ${ACC[k].from} зарлага</span><b class="num">${fmtSigned(r.withdrawn[k], 'expense')}</b></li>`).join('')}
       </ul>
-      ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmtNum(r.alloc[k] - (TARGET * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
+      ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmtNum(r.std[k] - (TARGET * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
     </details>`;
 }
 
@@ -1182,6 +1206,139 @@ function renderMusic() {
     <p class="note">Апп нээхэд аяархан хонхон аялгуу эгшиглэнэ. 📱 iPhone дуугүй (silent) горимд байвал сонсогдохгүй.</p>`;
 }
 
+// ---------- Орлогын төрөл (нэр, хуваарилалт) ----------
+const TYPE_EMOJIS = ['💼', '🎁', '🧑‍💻', '💵', '💰', '🏢', '🛒', '🚕', '📈', '🏠', '👩‍🏫', '🩺', '🎨', '🌾', '🐑', '🏆'];
+
+function renderIncomeTypes() {
+  const box = $('#income-types');
+  if (!box) return;
+  box.innerHTML = `
+    <h2>💼 Орлогын төрөл</h2>
+    <p class="note" style="margin-top:4px">Нэр болон хуваарилалтыг хэн нь ч сольж болно. Өөрчлөлт зөвхөн цаашид бүртгэх орлогод үйлчилнэ.</p>
+    ${S.incomeTypesMissing ? '<p class="note">⚠️ Хадгалахын тулд Supabase → SQL Editor дээр <b>supabase/income-types.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : ''}
+    <ul class="list">
+      ${INCOME_SOURCES.map((s) => {
+        const t = S.incomeTypes.find((x) => x.key === s.key);
+        const who = t?.updated_by ? adminOf(t.updated_by) : null;
+        return `
+        <li class="tx">
+          <span class="tx-emoji">${s.emoji}</span>
+          <div class="tx-main">
+            <div class="tx-title">${esc(s.name)}</div>
+            <div class="tx-sub">${s.alloc ? `📐 ${allocLabel(s.alloc)}` : '📐 Стандарт дүрэм · 4 сая'}${who ? `<br>${av(who, 'xs')} ${esc(who.name)} · ${fmtTime(t.updated_at)}` : ''}</div>
+          </div>
+          <button type="button" class="btn small" data-edit-type="${s.key}">✏️ Засах</button>
+        </li>`;
+      }).join('')}
+    </ul>`;
+}
+
+function openTypeSheet(key) {
+  if (S.incomeTypesMissing) {
+    toast('⚠️ Эхлээд Supabase дээр supabase/income-types.sql-ийг ажиллуулна уу', { kind: 'err', ms: 6000 });
+    return;
+  }
+  const s = sourceOf(key);
+  S.typeEdit = {
+    key, emoji: s.emoji, custom: !!s.alloc,
+    pct: { ...(s.alloc || Object.fromEntries(ACCOUNTS.map((a) => [a.key, a.pct]))) },
+  };
+  $('#type-name').value = s.name;
+  $('#type-name').placeholder = DEFAULT_SOURCES[key].name;
+  renderTypeSheet();
+  $('#type-sheet').showModal();
+}
+
+function typeTotal() {
+  return ACCOUNTS.reduce((t, a) => t + (Number(S.typeEdit.pct[a.key]) || 0), 0);
+}
+
+// Хувийн оролтод бичиж байх үед дахин зурахгүй — зөвхөн нийлбэр, жишээг шинэчилнэ
+function renderTypeTotals() {
+  const e = S.typeEdit;
+  const total = typeTotal();
+  const ok = !e.custom || total === 100;
+  const tl = $('#type-total');
+  if (tl) {
+    tl.className = `type-total ${total === 100 ? 'ok' : 'bad'}`;
+    tl.textContent = total === 100 ? 'Нийт 100% ✅' : `Нийт ${total}% — 100 болгоно уу`;
+  }
+  const ex = $('#type-example');
+  if (ex) {
+    const a = e.custom && total === 100 ? cleanAlloc(e.pct) : null;
+    const sp = a ? splitByPct(500_000, a) : null;
+    ex.textContent = sp
+      ? `500,000₮ → ${ACCOUNTS.filter((x) => sp[x.key]).map((x) => `${x.emoji} ${fmtNum(sp[x.key])}`).join(' · ')}`
+      : e.custom ? '' : '60 / 10 / 5 / 5 / 20 · сард 4 саяас илүү бол илүүдэл хуримтлалын 4 дансанд';
+  }
+  const btn = $('#type-save');
+  btn.disabled = !ok;
+  btn.classList.toggle('idle', !ok);
+}
+
+function renderTypeSheet() {
+  const e = S.typeEdit;
+  $('#type-emojis').innerHTML = TYPE_EMOJIS.map((x) => `<button type="button" data-type-emoji="${x}" aria-pressed="${x === e.emoji}">${x}</button>`).join('');
+  $$('#type-mode button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.typeMode === 'custom') === e.custom)));
+  $('#type-pcts').hidden = !e.custom;
+  $('#type-pcts').innerHTML = e.custom ? ACCOUNTS.map((a) => `
+    <div class="pct-row" style="--c:${a.color}">
+      <span class="pct-name">${a.emoji} ${a.name}</span>
+      <button type="button" class="pct-step" data-pct-step="${a.key}:-5" aria-label="${a.name} −5%">−</button>
+      <label class="pct-in"><input type="number" inputmode="numeric" min="0" max="100" step="1" data-pct="${a.key}" value="${e.pct[a.key] ?? 0}" aria-label="${a.name} хувь"><span>%</span></label>
+      <button type="button" class="pct-step" data-pct-step="${a.key}:5" aria-label="${a.name} +5%">+</button>
+    </div>`).join('') + '<div id="type-total" class="type-total"></div>' : '';
+  renderTypeTotals();
+}
+
+function wireIncomeTypes() {
+  const sheet = $('#type-sheet');
+  sheet.addEventListener('click', (ev) => {
+    if (ev.target === sheet || ev.target.closest('[data-close]')) { sheet.close(); return; }
+    const e = S.typeEdit;
+    const em = ev.target.closest('[data-type-emoji]');
+    if (em) { e.emoji = em.dataset.typeEmoji; renderTypeSheet(); return; }
+    const md = ev.target.closest('[data-type-mode]');
+    if (md) { e.custom = md.dataset.typeMode === 'custom'; renderTypeSheet(); return; }
+    const st = ev.target.closest('[data-pct-step]');
+    if (st) {
+      const [k, d] = st.dataset.pctStep.split(':');
+      e.pct[k] = Math.max(0, Math.min(100, (Number(e.pct[k]) || 0) + Number(d)));
+      $(`[data-pct="${k}"]`).value = e.pct[k];
+      renderTypeTotals();
+    }
+  });
+  sheet.addEventListener('input', (ev) => {
+    const k = ev.target.dataset?.pct;
+    if (!k) return;
+    S.typeEdit.pct[k] = Math.max(0, Math.min(100, Math.trunc(Number(ev.target.value) || 0)));
+    renderTypeTotals();
+  });
+
+  $('#type-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const e = S.typeEdit;
+    const name = $('#type-name').value.trim().slice(0, 40) || DEFAULT_SOURCES[e.key].name;
+    const alloc = e.custom ? cleanAlloc(e.pct) : null;
+    if (e.custom && !alloc) { shake($('#type-pcts')); return; }
+    const btn = $('#type-save');
+    btn.classList.add('busy');
+    try {
+      const row = await S.store.saveIncomeType({ key: e.key, name, emoji: e.emoji, alloc });
+      S.incomeTypes = [...S.incomeTypes.filter((x) => x.key !== e.key), row];
+      applyTypes();
+      sheet.close();
+      renderAll();
+      toast(`✅ ${e.emoji} ${name} хадгаллаа · ${allocLabel(alloc)}`);
+      scheduleReload(800);
+    } catch (err) {
+      toast(`⚠️ Хадгалж чадсангүй: ${err.message}`, { kind: 'err', ms: 6000 });
+    } finally {
+      btn.classList.remove('busy');
+    }
+  });
+}
+
 // ---------- Бусад ----------
 function renderMore() {
   const demo = S.store.mode === 'demo';
@@ -1206,6 +1363,7 @@ function renderMore() {
 
   renderNotif();
   renderMusic();
+  renderIncomeTypes();
 
   $('#rules').innerHTML = `
     <h2>📐 Хуваарилалтын дүрэм</h2>
@@ -1216,6 +1374,7 @@ function renderMore() {
     <p class="note">• <b>4 саяас илүү</b> бол илүүдлийг өрхөөс бусад 4 дансанд <b>эзлэх хувиар нь</b> (10:5:5:20 → 25% / 12.5% / 12.5% / 50%) нэмнэ.
       Жишээ: 600,000₮ илүүдэл → 🏦 +150,000, ✈️ +75,000, 🎯 +75,000, 🛡️ +300,000.</p>
     <p class="note">• <b>4 саяас бага</b> бол дээрх хувиар хуваана. Бутархай үлдэгдэл 🛡️ эрсдэлийн санд.</p>
+    <p class="note">• 💼 Орлогын төрөл бүрт <b>өөрийн хувь</b> тохируулж болно (дээрх “Орлогын төрөл” хэсэг). Тэр төрлийн орлого 4 саяын дүрэмд орохгүй, шууд тохируулсан хувиар хуваагдана.</p>
     <p class="note">• 🏠 Өрхийн дансны үлдэгдэл дараа сард шилжинэ, хэтэрсэн бол дараа сараас хасагдана. Бусад 4 данс хуримтлагдана.</p>
     <p class="note">• 💸 Зарлага бүртгэхдээ <b>“Аль данснаас”</b>-ыг сонгоно. 🏦 ✈️ 🎯 🛡️ данснаас гаргасан зарлага тухайн дансны хуримтлалаас хасагдана, өрхийн дансанд нөлөөлөхгүй.</p>`;
 
@@ -1398,6 +1557,8 @@ function wireGlobal() {
     if (cm) { S.coinMode = cm.dataset.coinMode; renderCoins(); return; }
 
     if (e.target.closest('#music-toggle')) return setMusicOn(!musicOn());
+    const et = e.target.closest('[data-edit-type]');
+    if (et) return openTypeSheet(et.dataset.editType);
     if (e.target.closest('#audit-more')) { S.auditLimit += 50; renderAudit(); return; }
     if (e.target.closest('#push-on')) return pushAction(() => enablePush(S.store), '🔔 Мэдэгдэл асаалаа!');
     if (e.target.closest('#push-off')) return pushAction(() => disablePush(S.store), '🔕 Мэдэгдэл унтарлаа');

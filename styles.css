@@ -527,6 +527,7 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border); border-bott
 .act-undo { color: var(--warn); background: var(--warn-soft); }
 .act-restore { color: var(--gold); background: var(--gold-soft); }
 .act-done { color: var(--ok); background: var(--ok-soft); }
+.act-edit { color: var(--gold); background: var(--gold-soft); }
 
 /* ---------- Бусад ---------- */
 .banner {
@@ -784,6 +785,24 @@ label.btn { cursor: pointer; }
 .viewer.hide-ui .vw-top, .viewer.hide-ui .vw-info, .viewer.hide-ui .vw-nav { opacity: 0; pointer-events: none; }
 @media (pointer: coarse) { .vw-nav { display: none; } }
 
+/* ---------- Орлогын төрөл засах ---------- */
+.type-pcts { display: grid; gap: 8px; }
+.type-pcts[hidden] { display: none; }
+.pct-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 40px 76px 40px; gap: 6px; align-items: center;
+  padding: 6px 6px 6px 12px; border-radius: 14px; background: color-mix(in srgb, var(--c) 14%, var(--surface-2));
+}
+.pct-name { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pct-step { height: 40px; border-radius: 12px; font-size: 20px; font-weight: 800; background: var(--surface); }
+.pct-in { display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 8px; border-radius: 12px; background: var(--surface); }
+.pct-in input { width: 100%; min-width: 0; border: 0; background: none; color: var(--text); font: 700 16px 'JetBrains Mono', monospace; text-align: right; }
+.pct-in input:focus { outline: none; }
+.pct-in span { color: var(--muted); font-weight: 700; }
+.type-total { text-align: center; font-weight: 800; font-size: 14px; padding: 8px; border-radius: 12px; }
+.type-total.ok { color: var(--ok); background: var(--ok-soft); }
+.type-total.bad { color: var(--bad); background: var(--bad-soft); }
+#income-types .tx-sub { line-height: 1.5; }
+
 /* ---------- Доороос гарах цонх (sheet) ---------- */
 .sheet {
   width: 100%; max-width: 520px; max-height: 92dvh; margin: auto auto 0; padding: 0; border: 0;
@@ -845,3 +864,5 @@ label.btn { cursor: pointer; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .toast .t-bar { animation-duration: var(--ms) !important; }
 }
+.pct-in input::-webkit-outer-spin-button, .pct-in input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pct-in input { -moz-appearance: textfield; appearance: textfield; }

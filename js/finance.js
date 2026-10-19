@@ -23,12 +23,57 @@ export const EXPENSE_CATEGORIES = [
   { key: 'other',     emoji: '🧺', name: 'Бусад' },
 ];
 
+// Орлогын төрөл. name, emoji, alloc-ийг тохиргооноос (applyIncomeTypes) сольж болно.
+// alloc: null → стандарт дүрэм (4 саяын зорилт), эсвэл { household, savings, travel, goal, risk } хувь (нийлбэр 100).
 export const INCOME_SOURCES = [
-  { key: 'salary', emoji: '💼', name: 'Цалин' },
-  { key: 'bonus',  emoji: '🎁', name: 'Урамшуулал' },
-  { key: 'side',   emoji: '🧑‍💻', name: 'Нэмэлт орлого' },
-  { key: 'other',  emoji: '💵', name: 'Бусад' },
+  { key: 'salary', emoji: '💼', name: 'Цалин', alloc: null },
+  { key: 'bonus',  emoji: '🎁', name: 'Урамшуулал', alloc: null },
+  { key: 'side',   emoji: '🧑‍💻', name: 'Нэмэлт орлого', alloc: null },
+  { key: 'other',  emoji: '💵', name: 'Бусад', alloc: null },
 ];
+export const DEFAULT_SOURCES = Object.fromEntries(INCOME_SOURCES.map((s) => [s.key, { ...s }]));
+
+/** Хувийн хуваарилалт зөв эсэх: 5 данс, 0–100 бүхэл, нийлбэр 100. Зөв бол цэвэрлэсэн хуулбар, үгүй бол null. */
+export function cleanAlloc(a) {
+  if (!a || typeof a !== 'object') return null;
+  const out = {};
+  for (const { key } of ACCOUNTS) {
+    const v = Number(a[key] ?? 0);
+    if (!Number.isInteger(v) || v < 0 || v > 100) return null;
+    out[key] = v;
+  }
+  return Object.values(out).reduce((x, y) => x + y, 0) === 100 ? out : null;
+}
+
+/** Тохиргооны мөрүүдийг ({ key, name, emoji, alloc }) INCOME_SOURCES-д хэрэглэнэ. Хоосон бол анхны утга. */
+export function applyIncomeTypes(rows = []) {
+  for (const s of INCOME_SOURCES) {
+    const r = rows.find((x) => x.key === s.key) || {};
+    const d = DEFAULT_SOURCES[s.key];
+    s.name = String(r.name ?? '').trim().slice(0, 40) || d.name;
+    s.emoji = r.emoji || d.emoji;
+    s.alloc = cleanAlloc(r.alloc);
+  }
+}
+
+/** Орлогыг хувиар хуваана: доош тоймлоод үлдэгдлийг хамгийн их хувьтай дансанд. */
+export function splitByPct(amount, pctMap) {
+  const total = Math.max(0, Math.trunc(Number(amount) || 0));
+  const out = Object.fromEntries(ACCOUNTS.map((a) => [a.key, Math.floor((total * pctMap[a.key]) / 100)]));
+  const top = ACCOUNTS.reduce((b, a) => (pctMap[a.key] > pctMap[b.key] ? a : b)).key;
+  out[top] += total - Object.values(out).reduce((x, y) => x + y, 0);
+  return out;
+}
+
+/** "🏠 60% · 🏦 10% …" — 0%-ийг алгасна. null бол стандарт дүрэм. */
+export function allocLabel(a) {
+  const c = cleanAlloc(a);
+  if (!c) return 'стандарт дүрэм';
+  return ACCOUNTS.filter((x) => c[x.key]).map((x) => `${x.emoji} ${c[x.key]}%`).join(' · ');
+}
+
+/** Орлогын мөр өөрийн хувьтай бол тэр хувь (бүртгэх үед хадгалсан), үгүй бол null (стандарт дүрэм). */
+export const incomeRule = (r) => cleanAlloc(r?.alloc);
 
 /** Зарлагыг аль данснаас гаргасан: хуучин мөрөнд account байхгүй бол өрхийн данс. */
 export const expenseAccount = (r) => (SAVING_KEYS.includes(r?.account) ? r.account : 'household');
@@ -109,6 +154,16 @@ export function buildLedger(incomes, expenses, { toMonth } = {}) {
   const last = keys.reduce((a, b) => (a > b ? a : b));
 
   const incomeBy = groupSum(inc);
+  const stdBy = groupSum(inc.filter((r) => !incomeRule(r)));
+  const customBy = {}; // өөрийн хувьтай орлогын сарын хуваарилалт
+  for (const r of inc) {
+    const rule = incomeRule(r);
+    if (!rule) continue;
+    const m = monthKey(r.date);
+    const sp = splitByPct(r.amount, rule);
+    customBy[m] ||= Object.fromEntries(ACCOUNTS.map((a) => [a.key, 0]));
+    for (const a of ACCOUNTS) customBy[m][a.key] += sp[a.key];
+  }
   const spentBy = groupSum(exp.filter((r) => expenseAccount(r) === 'household'));
   const withdrawnBy = Object.fromEntries(SAVING_KEYS.map((k) => [k, groupSum(exp.filter((r) => expenseAccount(r) === k))]));
 
@@ -118,7 +173,10 @@ export function buildLedger(incomes, expenses, { toMonth } = {}) {
   return monthRange(first, last).map((month) => {
     const income = incomeBy[month] || 0;
     const spent = spentBy[month] || 0;
-    const alloc = allocate(income);
+    // Стандарт дүрмийн орлого (4 саяын зорилт) + өөрийн хувьтай орлого
+    const std = allocate(stdBy[month] || 0);
+    const alloc = { ...std, total: income };
+    if (customBy[month]) for (const a of ACCOUNTS) alloc[a.key] += customBy[month][a.key];
     const carryIn = carry;
     const available = alloc.household + carryIn;
     const householdLeft = available - spent;
@@ -132,6 +190,7 @@ export function buildLedger(incomes, expenses, { toMonth } = {}) {
       income,
       spent,
       alloc,
+      std,
       excess: alloc.excess,
       carryIn,
       available,
@@ -155,7 +214,7 @@ function groupSum(rows) {
 export function emptyMonth(month) {
   const alloc = allocate(0);
   return {
-    month, income: 0, spent: 0, alloc, excess: 0, carryIn: 0, available: 0, householdLeft: 0,
+    month, income: 0, spent: 0, alloc, std: alloc, excess: 0, carryIn: 0, available: 0, householdLeft: 0,
     withdrawn: { savings: 0, travel: 0, goal: 0, risk: 0 }, fundSpent: 0,
     balances: { household: 0, savings: 0, travel: 0, goal: 0, risk: 0 },
   };
@@ -191,7 +250,8 @@ export function allocDelta(before, after) {
 
 /**
  * Орлого бүрийн хуваарилалт ("байршуулах даалгавар"). Сар бүрт бүртгэсэн дарааллаар нь
- * allocDelta(өмнөх орлогын нийлбэр, нийлбэр + энэ орлого) — сарын нийлбэр нь allocate(сарын орлого)-той тэнцэнэ.
+ * allocDelta(өмнөх стандарт орлогын нийлбэр, нийлбэр + энэ орлого); өөрийн хувьтай орлого бол splitByPct.
+ * Сарын нийлбэр нь buildLedger-ийн alloc-той яг тэнцэнэ.
  * Буцаах: { [income.id]: { household, savings, travel, goal, risk } }
  */
 export function incomeSplits(incomes) {
@@ -200,6 +260,8 @@ export function incomeSplits(incomes) {
   const sumBy = {};
   const out = {};
   for (const r of rows) {
+    const rule = incomeRule(r);
+    if (rule) { out[r.id] = splitByPct(r.amount, rule); continue; }
     const m = monthKey(r.date);
     const before = sumBy[m] || 0;
     sumBy[m] = before + Math.trunc(r.amount);

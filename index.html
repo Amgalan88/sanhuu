@@ -144,6 +144,7 @@
           </div>
           <p class="note">👁️ <b>Нүдэнд ээлтэй</b> — цэнхэр гэрэл багатай дулаан өнгө. Орой, унтахын өмнө ашиглахад тохиромжтой.</p>
         </section>
+        <section class="card" id="income-types"></section>
         <section class="card" id="rules"></section>
       </section>
     </main>
@@ -169,6 +170,26 @@
           <input id="ach-date" type="date" aria-label="Огноо">
         </div>
         <button type="submit" id="ach-save" class="save">✨ Амжилт хадгалах</button>
+      </form>
+    </dialog>
+
+    <!-- Орлогын төрөл засах -->
+    <dialog id="type-sheet" class="sheet" aria-labelledby="type-sheet-title">
+      <form id="type-form" novalidate>
+        <div class="sheet-head">
+          <h2 id="type-sheet-title">✏️ Орлогын төрөл</h2>
+          <button type="button" class="icon-x" data-close aria-label="Хаах">✕</button>
+        </div>
+        <input class="field" id="type-name" maxlength="40" autocomplete="off" aria-label="Нэр">
+        <div class="emoji-pick" id="type-emojis" role="group" aria-label="Эможи"></div>
+        <div class="seg" id="type-mode" role="group" aria-label="Хуваарилалт">
+          <button type="button" data-type-mode="std">📐 Стандарт дүрэм</button>
+          <button type="button" data-type-mode="custom">✏️ Өөрийн хувь</button>
+        </div>
+        <div id="type-pcts" class="type-pcts"></div>
+        <p id="type-example" class="note" style="margin:0"></p>
+        <p class="note" style="margin:0">ℹ️ Өөрчлөлт зөвхөн цаашид бүртгэх орлогод үйлчилнэ — өмнөх орлогын түүх өөрчлөгдөхгүй.</p>
+        <button type="submit" id="type-save" class="save">💾 Хадгалах</button>
       </form>
     </dialog>
 

@@ -5,11 +5,12 @@
 // Интерфэйс: init() → me|null, signIn(), signOut(), loadAll(), add(kind, fields),
 // remove(kind, row, action), restore(kind, row), addAchievement(fields, images{full,thumb}),
 // setAvatar(blob|null), markDone(income, items), undoDone(income, rows),
+// saveIncomeType({ key, name, emoji, alloc }),
 // savePushSubscription(), deletePushSubscription(), testPush(), subscribe(cb)
 // kind: 'income' | 'expense' | 'achievement'
 // transfers: орлогын хуваарилалтыг дансанд байршуулсан тэмдэглэл { income_id, account, amount }
 
-import { describe } from './finance.js';
+import { describe, sourceOf, allocLabel } from './finance.js';
 import { blobToDataURL } from './image.js';
 
 const TABLE = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
@@ -17,7 +18,8 @@ const BUCKET = 'achievements'; // амжилтын зураг: <user_id>/<id>.jp
 const SIGN_TTL = 60 * 60 * 24;
 const thumbOf = (path) => path.replace(/\.jpg$/, '_t.jpg'); // жижиг хувилбар: <id>_t.jpg
 const nowISO = () => new Date().toISOString();
-const PUSH_VERB = { add: 'нэмлээ', delete: 'устгалаа', undo: 'буцаалаа', restore: 'сэргээлээ', done: 'байршууллаа' };
+const PUSH_VERB = { add: 'нэмлээ', delete: 'устгалаа', undo: 'буцаалаа', restore: 'сэргээлээ', done: 'байршууллаа', edit: 'өөрчиллөө' };
+const typeText = (t) => `⚙️ Орлогын төрөл: ${sourceOf(t.key).emoji} ${sourceOf(t.key).name} → ${t.emoji} ${t.name} · ${allocLabel(t.alloc)}`;
 const missingTable = (error) => error?.code === 'PGRST205' || error?.code === '42P01';
 
 export function uuid() {
@@ -60,7 +62,8 @@ export class SupabaseStore {
   async signOut() {
     if (this.channel) this.sb.removeChannel(this.channel);
     if (this.transferChannel) this.sb.removeChannel(this.transferChannel);
-    this.channel = this.transferChannel = null;
+    if (this.typesChannel) this.sb.removeChannel(this.typesChannel);
+    this.channel = this.transferChannel = this.typesChannel = null;
     await this.sb.auth.signOut();
     this.me = null;
   }
@@ -104,19 +107,42 @@ export class SupabaseStore {
   }
 
   async loadAll() {
-    const [incomes, expenses, audit, achievements, transfers] = await Promise.all([
+    const [incomes, expenses, audit, achievements, transfers, incomeTypes] = await Promise.all([
       this.#fetchAll('incomes'),
       this.#fetchAll('expenses'),
       this.sb.from('audit_log').select('*').eq('mock', false).order('at', { ascending: false }).limit(300)
         .then(({ data, error }) => { if (error) throw error; return data; }),
       this.#fetchAchievements(),
       this.#fetchTransfers(),
+      this.#fetchIncomeTypes(),
       this.#loadAdmins(), // профайл зураг шинэчлэгдсэн байж болно
     ]);
     return {
-      incomes, expenses, audit, achievements, transfers,
+      incomes, expenses, audit, achievements, transfers, incomeTypes,
       achievementsMissing: this.achievementsMissing, transfersMissing: this.transfersMissing,
+      incomeTypesMissing: this.incomeTypesMissing,
     };
+  }
+
+  // income_types хүснэгт үүсээгүй бол анхны нэр, стандарт дүрмээр ажиллана
+  async #fetchIncomeTypes() {
+    const { data, error } = await this.sb.from('income_types').select('*');
+    this.incomeTypesMissing = missingTable(error);
+    if (error) {
+      if (!this.incomeTypesMissing) console.warn('income_types', error);
+      return [];
+    }
+    return data;
+  }
+
+  async saveIncomeType(t) {
+    if (this.incomeTypesMissing) throw new Error('Эхлээд Supabase дээр supabase/income-types.sql-ийг ажиллуулна уу');
+    const text = typeText(t);
+    const row = { ...t, updated_by: this.me.user_id, updated_at: nowISO() };
+    const { data, error } = await this.sb.from('income_types').upsert(row, { onConflict: 'key' }).select().single();
+    if (error) throw error;
+    await this.#audit('edit', text);
+    return data;
   }
 
   // transfers хүснэгт үүсээгүй бол апп эвдрэхгүй
@@ -290,6 +316,10 @@ export class SupabaseStore {
     this.transferChannel = this.sb.channel('bidnii-sanhuu-transfers')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transfers' }, change)
       .subscribe();
+    if (this.typesChannel) this.sb.removeChannel(this.typesChannel);
+    this.typesChannel = this.sb.channel('bidnii-sanhuu-income-types')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'income_types' }, change)
+      .subscribe();
   }
 }
 
@@ -311,7 +341,7 @@ export class LocalStore {
   #read() {
     let db = null;
     try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch { /* эвдэрсэн эсвэл хандах эрхгүй */ }
-    db = { incomes: [], expenses: [], audit: [], achievements: [], transfers: [], avatars: {}, ...(db || {}) };
+    db = { incomes: [], expenses: [], audit: [], achievements: [], transfers: [], incomeTypes: [], avatars: {}, ...(db || {}) };
     // Профайл зургийг админ бүрт холбоно
     this.admins = this.base.map((a) => ({ ...a, avatar_url: db.avatars[a.user_id] || null }));
     if (this.me) this.me = this.admins.find((a) => a.user_id === this.me.user_id);
@@ -358,6 +388,8 @@ export class LocalStore {
       achievementsMissing: false,
       transfers: db.transfers.filter((r) => !r.deleted),
       transfersMissing: false,
+      incomeTypes: db.incomeTypes,
+      incomeTypesMissing: false,
     };
   }
 
@@ -421,6 +453,16 @@ export class LocalStore {
       const r = db[TABLE[kind]].find((x) => x.id === row.id);
       if (r) Object.assign(r, { deleted: false, deleted_by: null, deleted_at: null });
       this.#audit(db, 'restore', describe(kind, row), row.id);
+    });
+  }
+
+  async saveIncomeType(t) {
+    const text = typeText(t);
+    return this.#mutate((db) => {
+      const row = { ...t, updated_by: this.me.user_id, updated_at: nowISO() };
+      db.incomeTypes = [...db.incomeTypes.filter((x) => x.key !== t.key), row];
+      this.#audit(db, 'edit', text);
+      return row;
     });
   }
 
