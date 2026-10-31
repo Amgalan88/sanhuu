@@ -14,7 +14,7 @@ import { cropAvatar } from './cropper.js';
 import { BACKDROPS, initBackdrop, setBackdrop, backdropPref, activeScene, refreshBackdrop } from './backdrop.js';
 import { registerSW, pushState, enablePush, disablePush } from './push.js';
 import {
-  MOODS, initMusic, musicOn, musicPlaying, musicVolume, musicMoodPref, currentMood, currentSong,
+  MOODS, initMusic, ensureMusic, pauseMusic, musicOn, musicPlaying, musicVolume, musicMoodPref, currentMood, currentSong,
   onMusicChange, setMusicOn, nextSong, setMusicMood, setMusicVolume, musicUnavailable, reloadMusic,
 } from './music.js';
 import { customLink, setCustomLink, parseYouTube } from './youtube.js';
@@ -114,6 +114,7 @@ async function boot() {
 }
 
 function showLogin(error = '') {
+  pauseMusic();
   delete document.body.dataset.view;
   $('#boot')?.remove();
   $('#app').hidden = true;
@@ -168,6 +169,7 @@ async function enterApp() {
   $('#app').hidden = false;
   renderWho();
   renderMusic();
+  ensureMusic();
 
   if (!started) {
     started = true;
@@ -1214,6 +1216,8 @@ function renderMusic() {
   const waiting = on && !playing; // дуугүй тоглож байна эсвэл ачаалж байна → хүрэхэд дуу гарна
   const mini = $('#yt-mini');
   const down = on && musicUnavailable(); // YouTube ачаалагдаагүй
+  const stage = $('#yt-stage');
+  if (stage) stage.hidden = !on || down;
   mini.classList.toggle('off', !on || down);
   mini.classList.toggle('wait', waiting && !down);
   mini.querySelector('.yt-badge').textContent = down ? '⚠️' : !on ? '🔇' : waiting ? '🔊' : '⏭';
@@ -1260,7 +1264,7 @@ function renderMusic() {
       <button type="button" class="btn ${on ? '' : 'primary block'}" id="music-toggle">${on ? '🔇 Унтраах' : '🎵 Хөгжим асаах'}</button>
     </div>
     <p class="note">🕐 Цагаар: 🌅 өглөө (5–11) · ☀️ өдөр урам зориг (11–17) · 🌆 үдэш романтик (17–21) · 🌙 шөнө тайван (21–5).
-    Апп нээгдэхэд дуугүй эхэлж, дэлгэцэнд анх хүрэхэд дуу гарна (утасны хөтөч ингэж шаарддаг). Дээд мөрний жижиг цонх дээр дарвал дараагийн дуу.</p>`;
+    Апп нээгдэхэд дуугүй эхэлж, дэлгэцэнд анх хүрэхэд дуу гарна (утасны хөтөч ингэж шаарддаг). Тоглуулагч дэлгэцийн өргөнийг дагаж 16:9 харагдана. Дээд мөрний товч дууг гаргаж, дахин дарвал дараагийн дуу.</p>`;
 }
 
 function playNext() {

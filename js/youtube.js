@@ -1,6 +1,6 @@
 // YouTube-ээс алдартай дуунууд ▶️ — YouTube IFrame Player API.
 // Дууг апп-д хадгалахгүй (зохиогчийн эрх) — YouTube-ийн өөрийн тоглуулагчаар тоглуулна.
-// Тоглуулагч дээд мөрөнд, профайлын хажууд жижиг цонхоор харагдана.
+// Тоглуулагч контентийн өргөнийг дагасан 16:9 цонх (хамгийн багадаа ~200px, гар утас дээр бүтэн өргөн).
 // Хөтөч дуутай автоматаар эхлүүлэхийг хориглодог тул дуугүй эхэлж, анхны хүрэлтээр ytUnmute().
 
 // Уур амьсгал бүрийн анхны жагсаалт (YouTube видео ID). Тоглохгүй видеог автоматаар алгасна.
@@ -33,8 +33,8 @@ export const DEFAULT_LISTS = {
   night: [
     '7maJOI3QMu0', // Yiruma — River Flows in You
     'UfcAVejslrU', // Marconi Union — Weightless
-    'rUxyKA_-grg', // Lofi Girl — beats to sleep/chill to
-    'jfKfPfyJRdk', // Lofi Girl — beats to relax/study to
+    'S-Xm7s9eGxU', // Erik Satie — Gymnopédie No.1
+    'ea2WoUtbzuw', // Debussy — Clair de Lune
   ],
 };
 
@@ -63,9 +63,41 @@ export function parseYouTube(text) {
 export const customLink = (mood) => read(LINK(mood));
 export const setCustomLink = (mood, text) => write(LINK(mood), String(text || '').trim());
 
+const EMBED_HOST = 'https://www.youtube-nocookie.com';
+
+/**
+ * Жинхэнэ embed хаяг. Хоосон `/embed/?` (videoId-гүй) тоглуулагч видео ачаалдаггүй.
+ * Playlist → /embed/videoseries?list=…, видео → /embed/ID?playlist=…
+ */
+export function embedSrc(queue, { autoplay = false, origin = '' } = {}) {
+  const params = new URLSearchParams({
+    enablejsapi: '1',
+    playsinline: '1',
+    rel: '0',
+    modestbranding: '1',
+    iv_load_policy: '3',
+    controls: '1',
+    fs: '1',
+    mute: '1',
+    autoplay: autoplay ? '1' : '0',
+  });
+  if (origin) params.set('origin', origin);
+  if (queue?.list) {
+    params.set('list', queue.list);
+    return `${EMBED_HOST}/embed/videoseries?${params}`;
+  }
+  const ids = queue?.ids || [];
+  if (!ids.length) return '';
+  // loop нь playlist параметртэй хамт л ажиллана
+  params.set('loop', '1');
+  params.set('playlist', (ids.length > 1 ? ids.slice(1).concat(ids[0]) : ids).join(','));
+  return `${EMBED_HOST}/embed/${ids[0]}?${params}`;
+}
+
 let api = null;         // Promise<YT>
 let player = null;
 let ready = false;
+let starting = false;
 let mood = null;
 let failures = 0;
 let wantPlay = false;
@@ -104,48 +136,68 @@ function queueFor(m) {
 function load(m, autoplay) {
   mood = m;
   failures = 0;
+  unavailable = false;
   const q = queueFor(m);
   const fn = autoplay ? 'loadPlaylist' : 'cuePlaylist';
   if (q.list) player[fn]({ listType: 'playlist', list: q.list, index: 0 });
-  else player[fn](q.ids, 0);
-  player.setLoop(true);
+  else if (q.ids?.length) player[fn](q.ids, 0);
+  try { player.setLoop(true); } catch { /* жагсаалт хараахан бэлэн биш */ }
   notify();
 }
 
-/** Тоглуулагчийг host элемент дотор үүсгэнэ (нэг удаа) */
-export async function ytStart(host, m) {
-  wantPlay = true;
-  if (player) {
-    if (m !== mood) load(m, true); else player.playVideo();
-    return;
-  }
-  const YT = await loadApi();
-  if (!YT) { unavailable = true; notify(); return; } // интернэтгүй/хаалттай
-  const el = document.createElement('div');
-  host.appendChild(el);
-  player = new YT.Player(el, {
-    width: '100%', height: '100%',
-    host: 'https://www.youtube-nocookie.com',
-    // mute: дуугүй бол хөтөч автоматаар тоглуулахыг зөвшөөрнө
-    playerVars: { playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3, fs: 0, controls: 0, disablekb: 1, mute: 1, autoplay: 1 },
+function mount(host, YT, m) {
+  const q = queueFor(m);
+  const src = embedSrc(q, { autoplay: wantPlay, origin: location.origin });
+  if (!src) { unavailable = true; notify(); return; }
+  mood = m;
+  const iframe = document.createElement('iframe');
+  iframe.className = 'yt-iframe';
+  iframe.title = 'YouTube тоглуулагч';
+  iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+  iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+  iframe.setAttribute('allowfullscreen', '');
+  iframe.src = src;
+  host.replaceChildren(iframe);
+  player = new YT.Player(iframe, {
     events: {
       onReady: () => {
         ready = true;
+        try { player.mute(); } catch { /* дуугүй автоматаар */ }
         player.setVolume(volume);
         if (wantSound) player.unMute();
-        load(m, wantPlay);
-      },
-      onStateChange: (e) => {
-        if (e.data === 1) failures = 0; // тоглож эхэлсэн
+        try { player.setLoop(true); } catch { /* ignore */ }
+        if (wantPlay && player.getPlayerState?.() !== 1) player.playVideo();
         notify();
       },
-      // Устсан, хориотой, embed хаасан видео → дараагийнх
-      onError: () => {
-        if (++failures > 8) { notify(); return; }
+      onStateChange: (e) => {
+        if (e.data === 1) { failures = 0; unavailable = false; } // тоглож эхэлсэн
+        notify();
+      },
+      // 153: Referer алга (тохиргоо). Бусад: устсан, хориотой видео → дараагийнх.
+      onError: (e) => {
+        if (e?.data === 153 || ++failures > 8) { unavailable = true; notify(); return; }
         setTimeout(() => player?.nextVideo(), 300);
       },
     },
   });
+}
+
+/** Тоглуулагчийг host элемент дотор үүсгэнэ (нэг удаа). Host харагдаж байх үед дуудна. */
+export async function ytStart(host, m) {
+  wantPlay = true;
+  if (!host) return;
+  if (player) {
+    if (m !== mood) load(m, true); else player.playVideo();
+    return;
+  }
+  if (starting) return;
+  starting = true;
+  const YT = await loadApi();
+  starting = false;
+  if (!YT) { unavailable = true; notify(); return; } // интернэтгүй/хаалттай
+  // API ачаалах хооронд апп нуугдсан бол 0×0 embed бүү үүсгэ
+  if (player || !host.isConnected || host.getClientRects().length === 0) return;
+  mount(host, YT, m);
 }
 
 let wantSound = false;
@@ -175,5 +227,8 @@ export function ytReload(m) { if (ready) load(m, wantPlay); }
 export function ytMood(m) { if (ready && m !== mood) load(m, wantPlay); }
 export function ytVolume(v) { volume = Math.round(v * 100); if (ready) player.setVolume(volume); }
 export const ytPlaying = () => ready && player.getPlayerState?.() === 1;
-export const ytTitle = () => (ready ? player.getVideoData?.().title || '' : '');
+export const ytTitle = () => {
+  if (!ready || !player) return '';
+  try { return player.getVideoData?.()?.title || ''; } catch { return ''; }
+};
 export const ytFailed = () => failures > 8;

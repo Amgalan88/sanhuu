@@ -13,7 +13,7 @@ test('цагаар уур амьсгал', () => {
 });
 
 // ---------- YouTube холбоос ----------
-import { parseYouTube, DEFAULT_LISTS } from '../js/youtube.js';
+import { parseYouTube, DEFAULT_LISTS, embedSrc } from '../js/youtube.js';
 
 test('YouTube холбоос задлах', () => {
   assert.deepEqual(parseYouTube('https://www.youtube.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG'), { list: 'PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG' });
@@ -26,4 +26,27 @@ test('YouTube холбоос задлах', () => {
     assert.ok(ids.length >= 4, k);
     for (const id of ids) assert.match(id, /^[A-Za-z0-9_-]{11}$/, `${k} ${id}`);
   }
+});
+
+test('YouTube embed хаяг видеотой, хоосон биш', () => {
+  const src = embedSrc({ ids: ['ZbZSe6N_BXs', 'btPJPFnesV4'] }, { autoplay: true, origin: 'https://sanhuu-pi.vercel.app' });
+  const u = new URL(src);
+  assert.equal(u.origin, 'https://www.youtube-nocookie.com');
+  assert.equal(u.pathname, '/embed/ZbZSe6N_BXs');
+  assert.notEqual(u.pathname, '/embed/');
+  assert.equal(u.searchParams.get('playlist'), 'btPJPFnesV4,ZbZSe6N_BXs');
+  assert.equal(u.searchParams.get('controls'), '1');
+  assert.equal(u.searchParams.get('mute'), '1');
+  assert.equal(u.searchParams.get('autoplay'), '1');
+  assert.equal(u.searchParams.get('loop'), '1');
+  assert.equal(u.searchParams.get('playsinline'), '1');
+  assert.equal(u.searchParams.get('origin'), 'https://sanhuu-pi.vercel.app');
+  assert.equal(embedSrc({ ids: [] }), '');
+  assert.equal(embedSrc(null), '');
+  const pl = new URL(embedSrc({ list: 'PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG' }));
+  assert.equal(pl.pathname, '/embed/videoseries');
+  assert.equal(pl.searchParams.get('list'), 'PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG');
+  const one = new URL(embedSrc({ ids: ['ea2WoUtbzuw'] }));
+  assert.equal(one.searchParams.get('playlist'), 'ea2WoUtbzuw');
+  assert.equal(one.searchParams.get('loop'), '1');
 });
