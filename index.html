@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <!-- YouTube embed (алдаа 153): Referer толгойг илгээнэ -->
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="theme-color" content="#0a2461">
   <meta name="description" content="Гэр бүлийн нийтийн данс — орлогыг 5 дансанд автоматаар хуваарилж, зарлагыг хялбар бүртгэнэ.">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -61,9 +63,8 @@
     <header class="topbar">
       <a class="brand" id="brand" href="./" aria-label="Нүүр хуудас"><img class="brand-coin" src="icons/coin.svg" alt=""> <span class="logo">Бидний <span>санхүү</span></span></a>
       <div class="top-right">
-        <!-- YouTube тоглуулагч: жижиг цонх, дээр нь дарвал дуу гаргах / дараагийн дуу -->
+        <!-- Хөгжмийн товч: дуу гаргах / дараагийн дуу. Видео нь доорх 16:9 цонхонд. -->
         <div class="yt-mini" id="yt-mini">
-          <div id="yt-frame" class="yt-frame"></div>
           <button id="music-btn" class="yt-tap" type="button" aria-label="Хөгжим"><span class="yt-badge" aria-hidden="true"></span></button>
         </div>
         <button id="who" class="who" type="button" aria-label="Хэрэглэгч"></button>
@@ -76,6 +77,10 @@
     </header>
 
     <div class="ticker-wrap"><button type="button" id="ticker" class="ticker" aria-live="polite" title="Дараагийн мессеж"></button></div>
+
+    <div id="yt-stage" class="yt-stage" hidden>
+      <div id="yt-frame" class="yt-frame"></div>
+    </div>
 
     <main>
       <!-- Нүүр -->

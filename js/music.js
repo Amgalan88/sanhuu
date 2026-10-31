@@ -43,8 +43,19 @@ export const currentSong = () => {
 };
 
 const host = () => document.getElementById('yt-frame');
+const stage = () => document.getElementById('yt-stage');
+
+function hostVisible() {
+  const el = host();
+  return !!el && el.getClientRects().length > 0;
+}
 
 function start() {
+  if (!musicOn() || document.hidden) return;
+  const box = stage();
+  if (box) box.hidden = false;
+  // #app[hidden] эсвэл 0×0 үед тоглуулагч үүсгэхгүй — YouTube хоосон embed, 153 алдаа өгнө
+  if (!hostVisible()) return;
   ytVolume(musicVolume());
   ytStart(host(), currentMood());
   arm();
@@ -70,12 +81,17 @@ export function initMusic() {
     }
     notify();
   });
-  if (musicOn()) start(); // нээмэгц эхэлнэ
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) ytPause();
     else if (musicOn()) start();
   });
 }
+
+/** Апп харагдахад дуудна — нуугдаж байх үед (#app[hidden]) тоглуулагч үүсгэхгүй */
+export function ensureMusic() { start(); }
+
+/** Нэвтрэх цонх руу буцахад дууг зогсооно */
+export function pauseMusic() { disarm(); ytPause(); }
 
 export function setMusicOn(on) {
   write(PREF, on ? 'on' : 'off');
