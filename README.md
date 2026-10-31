@@ -56,6 +56,7 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    - [supabase/transfers.sql](supabase/transfers.sql) — хуваарилалтын даалгавар (“✅ Байршуулсан” тэмдэглэл)
    - [supabase/expense-accounts.sql](supabase/expense-accounts.sql) — зарлагыг хуримтлалын данснаас гаргах (`expenses.account`)
    - [supabase/income-types.sql](supabase/income-types.sql) — орлогын төрлийн нэр, хуваарилалтын тохиргоо (`income_types`, `incomes.alloc`)
+   - [supabase/chat.sql](supabase/chat.sql) — хоёр админы чат (`messages`, `chat_reads`) ба Realtime
 3. **Authentication → Sign In / Providers → Email**:
    - **Allow new users to sign up**-ийг **унтраана** (гадны хүн бүртгүүлэхгүй).
    - Хүсвэл **Confirm email**-ийг унтраана.
@@ -164,6 +165,8 @@ supabase/push.sql       push мэдэгдлийн төхөөрөмжүүд
 supabase/transfers.sql  хуваарилалтын даалгавар: байршуулсан тэмдэглэл
 supabase/expense-accounts.sql  зарлага аль данснаас гарсан (expenses.account)
 supabase/income-types.sql  орлогын төрлийн тохиргоо (нэр, эможи, хуваарилалт)
+supabase/chat.sql       хоёр админы чат (messages, chat_reads, RLS, Realtime)
+js/chat.js              мессеж цэвэрлэх, уншаагүй тоо (цэвэр функц)
 supabase/functions/notify/  push илгээх Edge Function
 sw.js                   service worker (push)
 js/push.js              мэдэгдэл асаах/унтраах
@@ -244,6 +247,15 @@ YouTube-ээс алдартай дуунууд ([js/youtube.js](js/youtube.js)) 
 
 Орлого бүртгэхэд баярын цонх гарч, тухайн орлого аль дансанд хэдийг нэмснийг харуулна.
 Орлого `+`, зарлага `−` тэмдэгтэй харагдана. Хоёулаа **⚙️ Бусад → 📷 Профайл зураг солих**-оор зургаа тавина.
+
+## 💬 Чат
+
+Доод цэсний **💬 Чат** таб: Энх-Амгалан, Цэцгээ хоёр хоорондоо мессеж бичнэ.
+
+- Түүх, илгээгч, цаг харагдана. Нөгөө хүн апп нээтэй байвал мессеж шууд ирнэ (Supabase Realtime).
+- Уншаагүй мессеж байвал таб дээр тоо гарна. Чат нээхэд уншсанд тооцогдоно.
+- Апп хаалттай байвал одоогийн push мэдэгдлээр нөгөө хүнд очно (`notify`). Мэдэгдэл дээр дарахад шууд чат нээгдэхийг хүсвэл `notify` функцийг дахин байршуулна — шинэ нууц түлхүүр хэрэггүй.
+- Демо горимд мессеж зөвхөн энэ хөтөчид хадгалагдана.
 
 ## Тэмдэглэл
 

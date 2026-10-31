@@ -29,11 +29,13 @@ Deno.serve(async (req) => {
 
     const input = await req.json().catch(() => ({}));
     const test = input.test === true;
+    const rawUrl = typeof input.url === 'string' ? input.url : '';
+    const url = /^\.\/(?:#[a-z0-9-]{1,40})?$/.test(rawUrl) ? rawUrl : './';
     const payload = JSON.stringify({
       title: String(input.title ?? `${me.emoji} ${me.name}`).slice(0, 80),
       body: String(input.body ?? '').slice(0, 240),
       tag: input.tag ? String(input.tag).slice(0, 60) : undefined,
-      url: './',
+      url,
     });
 
     webpush.setVapidDetails(

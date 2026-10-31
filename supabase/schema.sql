@@ -131,5 +131,6 @@ end $$;
 
 -- ============================================================
 -- Дараа нь supabase/achievements.sql, supabase/profile.sql, supabase/push.sql,
--- supabase/transfers.sql, supabase/expense-accounts.sql, supabase/income-types.sql-ийг дарааллаар нь ажиллуулна.
+-- supabase/transfers.sql, supabase/expense-accounts.sql, supabase/income-types.sql,
+-- supabase/chat.sql-ийг дарааллаар нь ажиллуулна.
 -- ============================================================
