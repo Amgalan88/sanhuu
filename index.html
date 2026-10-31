@@ -2,7 +2,7 @@
 <html lang="mn">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0a2461">
   <meta name="description" content="Гэр бүлийн нийтийн данс — орлогыг 5 дансанд автоматаар хуваарилж, зарлагыг хялбар бүртгэнэ.">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -134,6 +134,19 @@
         <section class="card span-all" id="audit"></section>
       </section>
 
+      <!-- Чат -->
+      <section class="view" data-view="chat">
+        <section class="chat-panel span-all" id="chat-panel" aria-label="Чат">
+          <header class="chat-head" id="chat-head"></header>
+          <div class="chat-log" id="chat-log" role="log"></div>
+          <p class="chat-missing empty" id="chat-missing" hidden></p>
+          <form class="chat-compose" id="chat-form">
+            <textarea id="chat-input" rows="1" maxlength="2000" placeholder="Мессеж бичих…" enterkeyhint="send" aria-label="Мессеж"></textarea>
+            <button type="submit" id="chat-send">Илгээх</button>
+          </form>
+        </section>
+      </section>
+
       <!-- Бусад -->
       <section class="view" data-view="more">
         <section class="card" id="profile"></section>
@@ -220,6 +233,7 @@
       <button type="button" data-go="tx"><span>📋</span>Гүйлгээ</button>
       <button type="button" data-go="ach"><span>🏆</span>Амжилт</button>
       <button type="button" data-go="history"><span>📊</span>Түүх</button>
+      <button type="button" data-go="chat"><span>💬</span><i class="tab-badge" id="chat-badge" hidden>0</i>Чат</button>
       <button type="button" data-go="more"><span>⚙️</span>Бусад</button>
     </nav>
   </div>

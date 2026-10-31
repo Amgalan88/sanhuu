@@ -18,6 +18,7 @@ import {
   onMusicChange, setMusicOn, nextSong, setMusicMood, setMusicVolume, musicUnavailable, reloadMusic,
 } from './music.js';
 import { customLink, setCustomLink, parseYouTube } from './youtube.js';
+import { cleanBody, unreadCount, readCursor, clockTime, dayHeading } from './chat.js';
 
 // ============================================================
 // Туслах
@@ -77,6 +78,11 @@ const S = {
   splits: {},             // орлого бүрийн хуваарилалт: { [income.id]: { household, … } }
   busy: new Set(),        // илгээж буй даалгавар (давхар дарахаас сэргийлнэ)
   fresh: null,            // дөнгөж бүртгэсэн орлого (даалгаврыг тодруулна)
+  messages: [],
+  messagesMissing: false,
+  chatRead: null,         // ISO — энэ хэрэглэгч хүртэл уншсан
+  chatSending: false,
+  ready: false,
 };
 
 const adminOf = (id) => S.store.admins.find((a) => a.user_id === id) || { emoji: '🙂', name: 'Тодорхойгүй' };
@@ -108,6 +114,7 @@ async function boot() {
 }
 
 function showLogin(error = '') {
+  delete document.body.dataset.view;
   $('#boot')?.remove();
   $('#app').hidden = true;
   $('#login').hidden = false;
@@ -193,6 +200,8 @@ async function reload() {
   renderWho();
   recompute();
   renderAll();
+  S.ready = true;
+  if (S.view === 'chat') markChatRead();
 }
 
 let reloadTimer = 0;
@@ -216,6 +225,8 @@ function recompute() {
 }
 
 function onRemote(ev) {
+  if (ev.type === 'chat') return onChatInsert(ev.row);
+  if (ev.type === 'chat-read') return onChatRead(ev.at);
   if (ev.type === 'audit' && ev.row && ev.row.user_id !== S.me?.user_id) {
     const a = adminOf(ev.row.user_id);
     const verb = ACTION[ev.row.action]?.[1] || '';
@@ -515,6 +526,7 @@ function renderAll() {
   renderAudit();
   renderMore();
   renderAchievements();
+  renderChat();
   updateQuick();
   refreshTicker();
 }
@@ -1519,6 +1531,178 @@ function startTicker() {
 }
 
 // ============================================================
+// Чат
+// ============================================================
+function partner() {
+  return S.store.admins.find((a) => a.user_id !== S.me.user_id) || null;
+}
+
+function renderChatBadge() {
+  const el = $('#chat-badge');
+  if (!el) return;
+  const cursor = S.view === 'chat' ? readCursor(S.messages) : S.chatRead;
+  const n = S.messagesMissing ? 0 : unreadCount(S.messages, S.me?.user_id, cursor);
+  el.hidden = n <= 0;
+  el.textContent = n > 99 ? '99+' : String(n);
+}
+
+function renderChat({ scroll = 'keep' } = {}) {
+  const log = $('#chat-log');
+  if (!log) return;
+  const p = partner();
+  $('#chat-head').innerHTML = p
+    ? `${av(p, 'md')}<div><h2>${esc(p.name)}</h2><p class="hint">💬 Хоёуланд шууд харагдана</p></div>`
+    : '<div><h2>💬 Чат</h2><p class="hint">Хоёуланд шууд харагдана</p></div>';
+
+  const missing = !!S.messagesMissing;
+  $('#chat-form').hidden = missing;
+  log.hidden = missing;
+  const note = $('#chat-missing');
+  note.hidden = !missing;
+  if (missing) note.textContent = 'Эхлээд Supabase дээр supabase/chat.sql-ийг ажиллуулна уу. Дараа нь аппыг дахин нээнэ үү.';
+
+  const prev = log.scrollTop;
+  const stick = log.clientHeight > 0 && log.scrollHeight - log.scrollTop - log.clientHeight < 96;
+  const msgs = [...S.messages].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || String(a.id).localeCompare(String(b.id)));
+  const readAt = S.chatRead ? Date.parse(S.chatRead) : NaN;
+  let html = '';
+  let lastDay = '';
+  let prevSender = '';
+  let unreadMarked = false;
+  if (!missing && !msgs.length) html = '<p class="empty">Одоогоор мессеж алга. Эхний мэндээ илгээгээрэй.</p>';
+  for (const m of msgs) {
+    const day = dayHeading(m.created_at);
+    if (day !== lastDay) {
+      html += `<div class="chat-day">${esc(day)}</div>`;
+      lastDay = day;
+      prevSender = '';
+    }
+    const mine = m.created_by === S.me.user_id;
+    if (!unreadMarked && S.chatRead && !mine && Date.parse(m.created_at) > readAt) {
+      html += '<div class="chat-new" id="chat-new">Шинэ мессеж</div>';
+      unreadMarked = true;
+    }
+    const a = adminOf(m.created_by);
+    const showName = !mine && m.created_by !== prevSender;
+    prevSender = m.created_by;
+    const when = clockTime(m.created_at);
+    html += `
+      <div class="bubble-row ${mine ? 'mine' : 'theirs'}">
+        ${mine ? '' : av(a, 'sm')}
+        <div class="bubble">
+          ${showName ? `<div class="bubble-name">${esc(a.name)}</div>` : ''}
+          <div class="bubble-body">${esc(m.body)}</div>
+          <time class="bubble-time" datetime="${esc(m.created_at)}">${esc(when)}</time>
+        </div>
+      </div>`;
+  }
+  log.innerHTML = html;
+  if (scroll === 'bottom' || (scroll === 'keep' && stick)) log.scrollTop = log.scrollHeight;
+  else if (scroll === 'open') {
+    const marker = $('#chat-new');
+    log.scrollTop = marker ? Math.max(0, marker.offsetTop - 12) : log.scrollHeight;
+  } else log.scrollTop = prev;
+  renderChatBadge();
+}
+
+function onChatInsert(row) {
+  if (!row?.id || S.messages.some((m) => m.id === row.id)) return;
+  S.messages.push(row);
+  const mine = row.created_by === S.me?.user_id;
+  if (S.view === 'chat') {
+    renderChat({ scroll: 'bottom' });
+    markChatRead();
+    return;
+  }
+  renderChat();
+  if (!mine) {
+    const a = adminOf(row.created_by);
+    const preview = row.body.length > 80 ? `${row.body.slice(0, 80)}…` : row.body;
+    toast(`${a.emoji} ${a.name}: ${preview}`, { kind: 'info', ms: 4500 });
+  }
+}
+
+function onChatRead(at) {
+  if (!at) return;
+  if (!S.chatRead || Date.parse(at) > Date.parse(S.chatRead)) S.chatRead = at;
+  renderChatBadge();
+}
+
+let readTimer = 0;
+let pendingRead = null; // { userId, at } — гарахаас өмнө бичигдэнэ, өөр хэрэглэгчид очихгүй
+let readInflight = null;
+function markChatRead() {
+  if (!S.ready || S.view !== 'chat' || S.messagesMissing || !S.me) return;
+  const at = readCursor(S.messages);
+  renderChatBadge();
+  if (S.chatRead && Date.parse(S.chatRead) >= Date.parse(at)) return;
+  S.chatRead = at;
+  pendingRead = { userId: S.me.user_id, at };
+  clearTimeout(readTimer);
+  readTimer = setTimeout(() => flushChatRead(), 400);
+}
+
+async function flushChatRead() {
+  clearTimeout(readTimer);
+  readTimer = 0;
+  const pending = pendingRead;
+  pendingRead = null;
+  if (pending && S.me?.user_id === pending.userId) {
+    readInflight = S.store.markChatRead(pending.at).catch((e) => console.warn(e));
+  }
+  if (readInflight) await readInflight;
+}
+
+function growChatInput() {
+  const el = $('#chat-input');
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+}
+
+async function sendChat(e) {
+  e?.preventDefault();
+  const input = $('#chat-input');
+  const body = cleanBody(input.value);
+  if (!body) { toast('Мессеж хоосон байна', { kind: 'err' }); return; }
+  if (S.chatSending) return;
+  S.chatSending = true;
+  const btn = $('#chat-send');
+  btn.disabled = true;
+  try {
+    const row = await S.store.sendMessage(body);
+    input.value = '';
+    growChatInput();
+    if (!S.messages.some((m) => m.id === row.id)) S.messages.push(row);
+    renderChat({ scroll: 'bottom' });
+    markChatRead();
+  } catch (err) {
+    toast(`⚠️ ${err.message || 'Мессеж илгээж чадсангүй'}`, { kind: 'err', ms: 5000 });
+  } finally {
+    S.chatSending = false;
+    btn.disabled = false;
+  }
+}
+
+function wireChat() {
+  const form = $('#chat-form');
+  const input = $('#chat-input');
+  form.addEventListener('submit', sendChat);
+  input.addEventListener('input', growChatInput);
+  input.addEventListener('keydown', (e) => {
+    // Утас дээр Enter шинэ мөр. Хулганатай дэлгэц дээр Enter илгээнэ (Shift+Enter шинэ мөр).
+    const desktop = matchMedia('(pointer: fine)').matches;
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && desktop) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  if (window.visualViewport) {
+    visualViewport.addEventListener('resize', pinChat);
+    visualViewport.addEventListener('scroll', pinChat);
+  }
+}
+
+// ============================================================
 // Мэдэгдэл
 // ============================================================
 function toast(msg, { undo, kind = '', ms } = {}) {
@@ -1542,21 +1726,42 @@ function toast(msg, { undo, kind = '', ms } = {}) {
 // ============================================================
 // Навигаци ба үйлдлүүд
 // ============================================================
-const VIEWS = ['home', 'tx', 'ach', 'history', 'more'];
+const VIEWS = ['home', 'tx', 'ach', 'history', 'more', 'chat'];
 
 function setView(v, scroll = true) {
   if (!VIEWS.includes(v)) v = 'home';
+  if (S.view === 'chat' && v !== 'chat') flushChatRead();
   S.view = v;
+  document.body.dataset.view = v;
   $$('.view').forEach((el) => el.classList.toggle('active', el.dataset.view === v));
   $$('.tabbar button').forEach((b) => (b.dataset.go === v ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current')));
   if (location.hash.slice(1) !== v) history.replaceState(null, '', v === 'home' ? location.pathname + location.search : `#${v}`);
-  if (scroll) scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' });
+  if (v === 'chat') {
+    renderChat({ scroll: 'open' });
+    if (S.ready) markChatRead();
+  }
+  pinChat();
+  if (scroll && v !== 'chat') scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' });
   updateFab();
+}
+
+// Гар нээгдэхэд чатыг харагдах хэсэгт багтаана (iOS гар нь дэлгэцийг жижигрүүлдэггүй).
+function pinChat() {
+  const app = $('#app');
+  if (!app) return;
+  const vv = window.visualViewport;
+  if (S.view !== 'chat' || !vv) {
+    app.style.height = '';
+    app.style.transform = '';
+    return;
+  }
+  app.style.height = `${vv.height}px`;
+  app.style.transform = vv.offsetTop ? `translateY(${vv.offsetTop}px)` : '';
 }
 
 let quickVisible = true;
 function updateFab() {
-  $('#fab').classList.toggle('hide', (S.view === 'home' && quickVisible) || S.view === 'ach' || S.view === 'more');
+  $('#fab').classList.toggle('hide', (S.view === 'home' && quickVisible) || S.view === 'ach' || S.view === 'more' || S.view === 'chat');
 }
 
 function goQuick() {
@@ -1568,6 +1773,7 @@ function goQuick() {
 
 function wireGlobal() {
   $$('.tabbar button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.go)));
+  wireChat();
   addEventListener('hashchange', () => setView(location.hash.slice(1) || 'home', false));
   $('#fab').addEventListener('click', goQuick);
   $('#who').addEventListener('click', () => setView('more'));
@@ -1641,8 +1847,10 @@ function wireGlobal() {
     const rm = e.target.closest('#avatar-remove');
     if (rm) return armThen(rm, 'Арилгах уу?', () => changeAvatar(null));
     if (e.target.closest('#logout')) {
+      await flushChatRead();
       await S.store.signOut();
       S.me = null;
+      S.ready = false;
       showLogin();
     }
   });

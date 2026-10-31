@@ -6,11 +6,13 @@
 // remove(kind, row, action), restore(kind, row), addAchievement(fields, images{full,thumb}),
 // setAvatar(blob|null), markDone(income, items), undoDone(income, rows),
 // saveIncomeType({ key, name, emoji, alloc }),
+// sendMessage(body), markChatRead(at),
 // savePushSubscription(), deletePushSubscription(), testPush(), subscribe(cb)
 // kind: 'income' | 'expense' | 'achievement'
 // transfers: орлогын хуваарилалтыг дансанд байршуулсан тэмдэглэл { income_id, account, amount }
 
 import { describe, sourceOf, allocLabel } from './finance.js';
+import { cleanBody } from './chat.js';
 import { blobToDataURL } from './image.js';
 
 const TABLE = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
@@ -63,7 +65,8 @@ export class SupabaseStore {
     if (this.channel) this.sb.removeChannel(this.channel);
     if (this.transferChannel) this.sb.removeChannel(this.transferChannel);
     if (this.typesChannel) this.sb.removeChannel(this.typesChannel);
-    this.channel = this.transferChannel = this.typesChannel = null;
+    if (this.chatChannel) this.sb.removeChannel(this.chatChannel);
+    this.channel = this.transferChannel = this.typesChannel = this.chatChannel = null;
     await this.sb.auth.signOut();
     this.me = null;
   }
@@ -107,7 +110,7 @@ export class SupabaseStore {
   }
 
   async loadAll() {
-    const [incomes, expenses, audit, achievements, transfers, incomeTypes] = await Promise.all([
+    const [incomes, expenses, audit, achievements, transfers, incomeTypes, messages, chatRead] = await Promise.all([
       this.#fetchAll('incomes'),
       this.#fetchAll('expenses'),
       this.sb.from('audit_log').select('*').eq('mock', false).order('at', { ascending: false }).limit(300)
@@ -115,13 +118,65 @@ export class SupabaseStore {
       this.#fetchAchievements(),
       this.#fetchTransfers(),
       this.#fetchIncomeTypes(),
+      this.#fetchMessages(),
+      this.#fetchChatRead(),
       this.#loadAdmins(), // профайл зураг шинэчлэгдсэн байж болно
     ]);
     return {
-      incomes, expenses, audit, achievements, transfers, incomeTypes,
+      incomes, expenses, audit, achievements, transfers, incomeTypes, messages, chatRead,
       achievementsMissing: this.achievementsMissing, transfersMissing: this.transfersMissing,
-      incomeTypesMissing: this.incomeTypesMissing,
+      incomeTypesMissing: this.incomeTypesMissing, messagesMissing: this.messagesMissing,
     };
+  }
+
+  // messages хүснэгт үүсээгүй бол апп эвдрэхгүй
+  async #fetchMessages() {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await this.sb.from('messages').select('id, body, created_by, created_at')
+        .order('created_at').range(from, from + 999);
+      if (error) {
+        this.messagesMissing = missingTable(error);
+        if (!this.messagesMissing) console.warn('messages', error);
+        return [];
+      }
+      out.push(...data);
+      if (data.length < 1000) break;
+    }
+    this.messagesMissing = false;
+    return out;
+  }
+
+  async #fetchChatRead() {
+    const { data, error } = await this.sb.from('chat_reads').select('last_read_at').eq('user_id', this.userId).maybeSingle();
+    if (error) {
+      if (!missingTable(error)) console.warn('chat_reads', error);
+      return null;
+    }
+    return data?.last_read_at || null;
+  }
+
+  async sendMessage(body) {
+    if (this.messagesMissing) throw new Error('Эхлээд Supabase дээр supabase/chat.sql-ийг ажиллуулна уу');
+    const text = cleanBody(body);
+    if (!text) throw new Error('Мессеж хоосон байна');
+    const row = { id: uuid(), body: text, created_by: this.me.user_id };
+    const { data, error } = await this.sb.from('messages').insert(row).select('id, body, created_by, created_at').single();
+    if (error) throw error;
+    // Нөгөө хүнд push (функц байрлуулаагүй бол чимээгүй алгасна). Санхүүгийн бүртгэлд оруулахгүй.
+    this.sb.functions.invoke('notify', {
+      body: { body: text.slice(0, 180), tag: 'chat', url: './#chat' },
+    }).catch(() => {});
+    return data;
+  }
+
+  async markChatRead(at) {
+    if (this.messagesMissing) return;
+    const { error } = await this.sb.from('chat_reads').upsert(
+      { user_id: this.me.user_id, last_read_at: at },
+      { onConflict: 'user_id' },
+    );
+    if (error && !missingTable(error)) console.warn('chat_reads', error);
   }
 
   // income_types хүснэгт үүсээгүй бол анхны нэр, стандарт дүрмээр ажиллана
@@ -320,6 +375,16 @@ export class SupabaseStore {
     this.typesChannel = this.sb.channel('bidnii-sanhuu-income-types')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'income_types' }, change)
       .subscribe();
+    // Тусдаа суваг: chat.sql ажиллуулаагүй үед бусад өгөгдлийн шууд шинэчлэлт эвдрэхгүй.
+    if (this.chatChannel) this.sb.removeChannel(this.chatChannel);
+    this.chatChannel = this.sb.channel('bidnii-sanhuu-chat')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => {
+        cb({ type: 'chat', row: p.new });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reads' }, (p) => {
+        if (p.new?.user_id === this.userId) cb({ type: 'chat-read', at: p.new.last_read_at });
+      })
+      .subscribe();
   }
 }
 
@@ -341,7 +406,7 @@ export class LocalStore {
   #read() {
     let db = null;
     try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch { /* эвдэрсэн эсвэл хандах эрхгүй */ }
-    db = { incomes: [], expenses: [], audit: [], achievements: [], transfers: [], incomeTypes: [], avatars: {}, ...(db || {}) };
+    db = { incomes: [], expenses: [], audit: [], achievements: [], transfers: [], incomeTypes: [], messages: [], chatReads: {}, avatars: {}, ...(db || {}) };
     // Профайл зургийг админ бүрт холбоно
     this.admins = this.base.map((a) => ({ ...a, avatar_url: db.avatars[a.user_id] || null }));
     if (this.me) this.me = this.admins.find((a) => a.user_id === this.me.user_id);
@@ -390,7 +455,24 @@ export class LocalStore {
       transfersMissing: false,
       incomeTypes: db.incomeTypes,
       incomeTypesMissing: false,
+      messages: db.messages,
+      chatRead: db.chatReads[this.me.user_id] || null,
+      messagesMissing: false,
     };
+  }
+
+  async sendMessage(body) {
+    const text = cleanBody(body);
+    if (!text) throw new Error('Мессеж хоосон байна');
+    return this.#mutate((db) => {
+      const row = { id: uuid(), body: text, created_by: this.me.user_id, created_at: nowISO() };
+      db.messages.push(row);
+      return row;
+    });
+  }
+
+  async markChatRead(at) {
+    this.#mutate((db) => { db.chatReads[this.me.user_id] = at; });
   }
 
   #audit(db, action, text, ref_id = null) {
