@@ -3,3 +3,7 @@ node_modules/
 .vercel/
 .netlify/
 .secrets/
+
+# Supabase CLI local state (project ref, pooler URL). Do not commit.
+supabase/.temp/
+supabase/.branches/
