@@ -50,7 +50,17 @@ export class SupabaseStore {
   async init() {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
     this.sb = createClient(this.url, this.key, { auth: { persistSession: true, autoRefreshToken: true } });
+    this.recovery = false;
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
+    if (hash.get('type') === 'recovery') this.recovery = true;
+    this.sb.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        this.recovery = true;
+        this.onRecovery?.();
+      }
+    });
     const { data } = await this.sb.auth.getSession();
+    if (this.recovery) return null;
     if (!data.session) return null;
     return this.#loadMe(data.session.user.id);
   }
@@ -59,6 +69,32 @@ export class SupabaseStore {
     const { data, error } = await this.sb.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message === 'Invalid login credentials' ? 'Имэйл эсвэл нууц үг буруу байна' : error.message);
     return this.#loadMe(data.user.id);
+  }
+
+  /** Имэйлээр нууц үг сэргээх холбоос. Supabase Auth (email + password). */
+  async resetPassword(email) {
+    const redirectTo = `${location.origin}${location.pathname}`;
+    const { error } = await this.sb.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+      const msg = error.message === 'Email rate limit exceeded'
+        ? 'Хэт олон удаа илгээлээ. Түр хүлээгээд дахин оролдоно уу.'
+        : error.message;
+      throw new Error(msg);
+    }
+  }
+
+  /** Нууц үг солисны дараа одоогийн сессээр админыг ачаална. */
+  async resume() {
+    const { data } = await this.sb.auth.getSession();
+    if (!data.session) return null;
+    return this.#loadMe(data.session.user.id);
+  }
+
+  async updatePassword(password) {
+    const { error } = await this.sb.auth.updateUser({ password });
+    if (error) throw new Error(error.message === 'New password should be different from the old password.'
+      ? 'Шинэ нууц үг өмнөхөөсөө өөр байх ёстой.'
+      : error.message);
   }
 
   async signOut() {

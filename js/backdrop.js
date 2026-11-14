@@ -3,6 +3,7 @@
 // Апп нуугдахад зогсоно; prefers-reduced-motion үед хөдөлгөөнгүй нэг зураг.
 
 const PREF = 'bidnii-sanhuu-backdrop';
+const MOTION_KEY = 'bidnii-sanhuu-motion';
 export const BACKDROPS = [
   { key: 'auto', emoji: '🔄', name: 'Улирлаар' },
   { key: 'leaves', emoji: '🍂', name: 'Намрын навч' },
@@ -23,6 +24,19 @@ export const backdropPref = read;
 export const activeScene = () => (read() === 'auto' ? seasonScene(new Date().getMonth() + 1) : read());
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+
+/** Хөдөлгөөн: систем `prefers-reduced-motion` үед үргэлж унтарна. Үгүй бол хэрэглэгчийн унтраалга. */
+export function motionEnabled() {
+  if (reduced.matches) return false;
+  try { return localStorage.getItem(MOTION_KEY) !== 'off'; } catch { return true; }
+}
+export function motionPrefOff() {
+  try { return localStorage.getItem(MOTION_KEY) === 'off'; } catch { return false; }
+}
+export function setMotionEnabled(on) {
+  try { localStorage.setItem(MOTION_KEY, on ? 'on' : 'off'); } catch { /* ignore */ }
+  apply();
+}
 const darkMq = matchMedia('(prefers-color-scheme: dark)');
 const themeOf = () => document.documentElement.dataset.theme || (darkMq.matches ? 'dark' : 'light');
 
@@ -76,7 +90,7 @@ function counts(s) {
 function reset() {
   parts = [];
   t0 = performance.now();
-  if (scene === 'none') return;
+  if (scene === 'none' || !motionEnabled()) return;
   for (let i = 0; i < counts(scene); i++) parts.push(spawn(scene, true));
 }
 
@@ -183,6 +197,17 @@ function draw(dt, time) {
   g.globalAlpha = 1;
 }
 
+function paintStill() {
+  g.clearRect(0, 0, W, H);
+  const sky = palette().sky[scene];
+  if (!sky) return;
+  const lg = g.createLinearGradient(0, 0, 0, H);
+  lg.addColorStop(0, sky[0]);
+  lg.addColorStop(1, sky[1]);
+  g.fillStyle = lg;
+  g.fillRect(0, 0, W, H);
+}
+
 function frame(now) {
   raf = requestAnimationFrame(frame);
   if (now - last < 33) return; // ~30 fps — батарей хэмнэнэ
@@ -195,10 +220,8 @@ function stopLoop() { cancelAnimationFrame(raf); raf = 0; }
 function startLoop() {
   stopLoop();
   if (scene === 'none') { g.clearRect(0, 0, W, H); return; }
-  if (reduced.matches) { // хөдөлгөөнгүй: нэг зураг
-    for (let i = 0; i < 3; i++) draw(0.016, 1000 * i);
-    return;
-  }
+  // prefers-reduced-motion эсвэл унтраалга: бөөмсгүй, зөвхөн тэнгэр — навч товч, текст дээр зогсохгүй
+  if (!motionEnabled()) { parts = []; paintStill(); return; }
   last = performance.now();
   raf = requestAnimationFrame(frame);
 }

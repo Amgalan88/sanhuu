@@ -1,7 +1,7 @@
 import {
   TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf, expenseAccount,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
-  fmt, fmtNum, fmtShort, fmtSigned, incomeSplits, MINUS, parseAmount, describe,
+  fmt, fmtNum, fmtSigned, incomeSplits, MINUS, parseAmount, describe,
   applyIncomeTypes, cleanAlloc, splitByPct, allocLabel, DEFAULT_SOURCES, accountKey, accountOf, MERGED_INTO,
 } from './finance.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
@@ -11,7 +11,7 @@ import { confetti } from './confetti.js';
 import { celebrate, pick } from './celebrate.js';
 import { achievementImages } from './image.js';
 import { cropAvatar } from './cropper.js';
-import { BACKDROPS, initBackdrop, setBackdrop, backdropPref, activeScene, refreshBackdrop } from './backdrop.js';
+import { BACKDROPS, initBackdrop, setBackdrop, backdropPref, activeScene, refreshBackdrop, motionEnabled, motionPrefOff, setMotionEnabled } from './backdrop.js';
 import { registerSW, pushState, enablePush, disablePush } from './push.js';
 import {
   MOODS, initMusic, ensureMusic, pauseMusic, musicOn, musicPlaying, musicVolume, musicMoodPref, currentMood, currentSong,
@@ -105,15 +105,19 @@ async function boot() {
   onMusicChange(renderMusic);
   registerSW(); // push мэдэгдэл, апп болгон суулгах
   S.store = SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStore();
+  if (S.store.mode === 'supabase') S.store.onRecovery = () => showLogin('', 'recovery');
   try {
     S.me = await S.store.init();
   } catch (e) {
     return showLogin(e.message);
   }
+  if (S.store.recovery) return showLogin('', 'recovery');
   S.me ? enterApp() : showLogin();
 }
 
-function showLogin(error = '') {
+const devOnly = (html) => (S.store?.mode === 'demo' ? html : '');
+
+function showLogin(error = '', mode = '') {
   pauseMusic();
   delete document.body.dataset.view;
   $('#boot')?.remove();
@@ -122,14 +126,49 @@ function showLogin(error = '') {
   $('#login-error').textContent = error;
   const body = $('#login-body');
 
+  if (mode === 'recovery' || S.store.recovery) {
+    body.innerHTML = `
+      <form id="new-password-form" novalidate>
+        <p class="note" style="margin-top:0">Шинэ нууц үгээ оруулна уу.</p>
+        <label for="new-password">Шинэ нууц үг</label>
+        <input class="field" id="new-password" type="password" autocomplete="new-password" minlength="6" required>
+        <label for="new-password2">Нууц үг давтах</label>
+        <input class="field" id="new-password2" type="password" autocomplete="new-password" minlength="6" required>
+        <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Нууц үг шинэчлэх</button>
+      </form>`;
+    $('#new-password-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const a = $('#new-password').value;
+      const b = $('#new-password2').value;
+      $('#login-error').textContent = '';
+      if (a.length < 6) { $('#login-error').textContent = 'Нууц үг хамгийн багадаа 6 тэмдэгт байна.'; return; }
+      if (a !== b) { $('#login-error').textContent = 'Нууц үг таарахгүй байна.'; return; }
+      const btn = e.submitter;
+      btn.disabled = true;
+      btn.textContent = 'Түр хүлээнэ үү…';
+      try {
+        await S.store.updatePassword(a);
+        S.store.recovery = false;
+        history.replaceState(null, '', location.pathname + location.search);
+        S.me = await S.store.resume();
+        if (S.me) enterApp();
+        else showLogin('Нууц үг шинэчлэгдлээ. Шинэ нууц үгээрээ нэвтэрнэ үү.');
+      } catch (err) {
+        $('#login-error').textContent = err.message;
+        btn.disabled = false;
+        btn.textContent = 'Нууц үг шинэчлэх';
+      }
+    });
+    return;
+  }
+
   if (S.store.mode === 'demo') {
     body.innerHTML = `
       <p class="muted" style="margin:0 0 12px">Хэн нэвтэрч байна вэ?</p>
       <div class="demo-pick">
         ${S.store.admins.map((a) => `<button type="button" data-login="${a.user_id}">${av(a, 'xl')}${esc(a.name)}</button>`).join('')}
       </div>
-      <p class="demo-note">🧪 Демо горим: өгөгдөл зөвхөн энэ хөтөчид хадгалагдана.
-      Хоёр утсыг холбохын тулд <b>js/config.js</b>-д Supabase-ээ тохируулна уу.</p>`;
+      <p class="demo-note">🧪 Демо горим: өгөгдөл зөвхөн энэ хөтөчид хадгалагдана.</p>`;
     $$('[data-login]', body).forEach((b) => b.addEventListener('click', async () => {
       S.me = await S.store.signIn({ userId: b.dataset.login });
       enterApp();
@@ -143,11 +182,20 @@ function showLogin(error = '') {
       <input class="field" id="email" type="email" autocomplete="username" inputmode="email" required>
       <label for="password">Нууц үг</label>
       <input class="field" id="password" type="password" autocomplete="current-password" required>
+      <button type="button" class="linkish" id="forgot">Нууц үг мартсан</button>
       <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Нэвтрэх</button>
+    </form>
+    <form id="reset-form" hidden novalidate>
+      <p class="note" style="margin-top:0">Имэйл хаягаа оруулна уу. Нууц үг сэргээх холбоос очно.</p>
+      <label for="reset-email">Имэйл</label>
+      <input class="field" id="reset-email" type="email" autocomplete="username" inputmode="email" required>
+      <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Холбоос илгээх</button>
+      <button type="button" class="linkish" id="reset-back">Нэвтрэх рүү буцах</button>
+      <p id="reset-note" class="login-note"></p>
     </form>`;
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const btn = e.submitter || $('#login-form button');
+    const btn = e.submitter || $('#login-form button[type="submit"]');
     btn.disabled = true;
     btn.textContent = 'Түр хүлээнэ үү…';
     $('#login-error').textContent = '';
@@ -158,6 +206,43 @@ function showLogin(error = '') {
       $('#login-error').textContent = err.message;
       btn.disabled = false;
       btn.textContent = 'Нэвтрэх';
+    }
+  });
+  $('#forgot').addEventListener('click', () => {
+    $('#login-form').hidden = true;
+    $('#reset-form').hidden = false;
+    $('#reset-email').value = $('#email').value.trim();
+    $('#login-error').textContent = '';
+    $('#reset-email').focus();
+  });
+  $('#reset-back').addEventListener('click', () => {
+    $('#reset-form').hidden = true;
+    $('#login-form').hidden = false;
+    $('#email').value = $('#reset-email').value.trim();
+    $('#login-error').textContent = '';
+  });
+  $('#reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = $('#reset-email').value.trim();
+    const note = $('#reset-note');
+    note.textContent = '';
+    $('#login-error').textContent = '';
+    if (!email.includes('@')) {
+      $('#login-error').textContent = 'Имэйл хаягаа зөв оруулна уу.';
+      $('#reset-email').focus();
+      return;
+    }
+    const btn = e.submitter;
+    btn.disabled = true;
+    btn.textContent = 'Илгээж байна…';
+    try {
+      await S.store.resetPassword(email);
+      note.textContent = 'Хэрэв энэ имэйл бүртгэлтэй бол нууц үг сэргээх холбоос очно. Имэйлээ шалгана уу.';
+    } catch (err) {
+      $('#login-error').textContent = err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Холбоос илгээх';
     }
   });
 }
@@ -289,12 +374,12 @@ function buildQuick() {
   });
 
   $('#date').addEventListener('change', () => { updateQuick(); updateExtraLabel(); });
-  for (const el of [amount, $('#note'), $('#date')]) {
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); save(); }
-    });
-  }
-  $('#save').addEventListener('click', save);
+  $('#tx-form').addEventListener('submit', (e) => { e.preventDefault(); save(); });
+  const txSheet = $('#tx-sheet');
+  txSheet.addEventListener('click', (ev) => {
+    if (ev.target === txSheet || ev.target.closest('[data-close]')) closeTxSheet();
+  });
+  txSheet.addEventListener('close', updateFab);
   $('#extra-toggle').addEventListener('click', () => {
     const ex = $('#quick .extra');
     ex.hidden = !ex.hidden;
@@ -391,7 +476,7 @@ function updateQuick() {
     const s = sourceOf(cat);
     const sp = splitByPct(amount, s.alloc);
     text = amount
-      ? `📐 ${s.name}: ${ACCOUNTS.filter((a) => sp[a.key]).map((a) => `${a.emoji} ${fmtNum(sp[a.key])}`).join(' · ')}`
+      ? `📐 ${s.name}: ${ACCOUNTS.filter((a) => sp[a.key]).map((a) => `${a.emoji} ${fmt(sp[a.key])}`).join(' · ')}`
       : `📐 ${s.name}: ${allocLabel(s.alloc)}`;
     cls = amount ? 'ok' : '';
   } else {
@@ -445,13 +530,11 @@ async function save() {
     if (kind === 'expense') { S.q.cat = null; S.q.acc = 'household'; }
     $('#amount').value = '';
     $('#note').value = '';
-    // Утсан дээр гарыг хааж мэдэгдлийг харагдуулна; компьютер дээр дараагийн бүртгэлд бэлэн
-    if (matchMedia('(pointer: coarse)').matches) { $('#amount').blur(); $('#note').blur(); }
-    else $('#amount').focus();
     S.month = m;
     recompute();
     renderAll();
 
+    closeTxSheet();
     const undo = () => undoAdd(kind, row);
     if (kind === 'expense') {
       const from = acc === 'household' ? '' : ` ${ACC[acc].emoji} ${ACC[acc].from}`;
@@ -531,6 +614,7 @@ function renderAll() {
   renderChat();
   updateQuick();
   refreshTicker();
+  updateFab();
 }
 
 function monthOptions() {
@@ -563,7 +647,7 @@ function renderSummary() {
 
     <div class="sum-row"><span>💼 Орлого</span><b class="num ${r.income ? 'pos' : ''}">${r.income ? fmtSigned(r.income, 'income') : fmt(0)}</b></div>
     <div class="bar" role="progressbar" aria-valuenow="${Math.round(goalPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="4 саяын зорилт"><i style="width:${goalPct}%"></i></div>
-    <div class="between"><span>${goalText}</span><span>зорилт ${fmtNum(TARGET)}</span></div>
+    <div class="between"><span>${goalText}</span><span>зорилт ${fmt(TARGET)}</span></div>
 
     <details ${open}>
       <summary>Хуваарилалтын дэлгэрэнгүй</summary>
@@ -572,7 +656,7 @@ function renderSummary() {
         <li><span></span><span>🌱 Өмнөх сараас шилжсэн</span><b class="num ${r.carryIn > 0 ? 'pos' : r.carryIn < 0 ? 'neg' : ''}">${signed(r.carryIn)}</b></li>
         ${SAVING_KEYS.filter((k) => r.withdrawn[k]).map((k) => `<li><span></span><span>💸 ${ACC[k].emoji} ${ACC[k].from} зарлага</span><b class="num">${fmtSigned(r.withdrawn[k], 'expense')}</b></li>`).join('')}
       </ul>
-      ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmtNum(r.std[k] - (TARGET * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
+      ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmt(r.std[k] - (TARGET * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
     </details>`;
 }
 
@@ -587,15 +671,15 @@ function renderOverview() {
 
   $('#overview').innerHTML = `
     <div class="ov-house">
-      <div class="ov-head"><small>🏠 Өрхийн дансны үлдэгдэл${when}</small>${r.available > 0 ? `<span class="ov-pct ${lvl}">${Math.round(spentPct)}%</span>` : ''}</div>
+      <div class="ov-head"><small>🏠 Өрхийн дансны үлдэгдэл${when}</small>${r.available > 0 ? `<span class="ov-pct ${lvl}" title="Өрхийн данснаас хэдэн хувь зарцуулсан">Зарцуулсан ${Math.round(spentPct)}%</span>` : ''}</div>
       <b class="num ${left < 0 ? 'neg' : ''}">${fmt(left)}</b>
-      <div class="bar ${lvl}" role="progressbar" aria-valuenow="${Math.round(spentPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Өрхийн зарцуулалт"><i style="width:${spentPct}%"></i></div>
+      <div class="bar ${lvl}" role="progressbar" aria-valuenow="${Math.round(spentPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Өрхийн зарцуулалт ${Math.round(spentPct)}%"><i style="width:${spentPct}%"></i></div>
       <small class="ov-sub">${left < 0 ? `⚠️ ${fmt(-left)} хэтэрсэн — дараа сараас хасагдана` : `${fmt(r.available)}-аас ${fmt(r.spent)} зарцуулсан`}</small>
     </div>
     <div class="ov-saved">
       <div class="ov-saved-head"><span>💰 Хуримтлал</span><b class="num">${fmt(saved)}</b></div>
       <div class="ov-chips">
-        ${SAVING_KEYS.map((k) => `<span class="ov-chip" style="--c:${ACC[k].color}" title="${ACC[k].name}: ${fmt(r.balances[k])}">${ACC[k].emoji}<b class="${r.balances[k] < 0 ? 'neg' : ''}">${fmtShort(r.balances[k])}</b></span>`).join('')}
+        ${SAVING_KEYS.map((k) => `<span class="ov-chip" style="--c:${ACC[k].color}"><span class="ov-k">${ACC[k].emoji} ${k === 'goal' ? 'Зорилго' : 'Эрсдэлийн сан'}</span><b class="num ${r.balances[k] < 0 ? 'neg' : ''}">${fmt(r.balances[k])}</b></span>`).join('')}
       </div>
       ${r.fundSpent ? `<small class="ov-sub">💸 Энэ сард хуримтлалаас ${fmtSigned(r.fundSpent, 'expense')} зарцуулсан</small>` : ''}
     </div>`;
@@ -634,13 +718,14 @@ function renderTasks() {
   const pending = groups.filter((g) => g.tasks.some((t) => !t.done));
   const finished = groups.filter((g) => g.tasks.every((t) => t.done));
   const open = $('#tasks details')?.open ? 'open' : '';
+  const leftAll = all.length - nDone;
 
   box.innerHTML = `
     <div class="card-head">
       <h2>📋 Хуваарилалтын даалгавар</h2>
-      <span class="pill ${nDone === all.length ? 'ok' : 'gold'}">${nDone}/${all.length} байршсан</span>
+      <span class="pill ${nDone === all.length ? 'ok' : 'gold'}" title="Энэ сарын бүх даалгавар: ${nDone} байршсан, ${leftAll} үлдсэн">${nDone}/${all.length} · ${leftAll} үлдсэн</span>
     </div>
-    ${S.transfersMissing ? '<p class="note">⚠️ “Байршуулсан” тэмдэглэлийг хадгалахын тулд Supabase → SQL Editor дээр <b>supabase/transfers.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : ''}
+    ${devOnly(S.transfersMissing ? '<p class="note">⚠️ “Байршуулсан” тэмдэглэлийг хадгалахын тулд Supabase → SQL Editor дээр <b>supabase/transfers.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : '')}
     ${pending.length ? pending.map(taskGroup).join('') : '<p class="tasks-clear">🎉 Энэ сарын бүх хуваарилалт дансандаа байршсан!</p>'}
     ${finished.length ? `<details ${open}><summary>✅ Бүрэн байршсан орлого · ${finished.length}</summary>${finished.map(taskGroup).join('')}</details>` : ''}`;
 }
@@ -655,7 +740,7 @@ function taskGroup({ r, tasks }) {
         <span class="tg-title">${s.emoji} ${esc(r.note || s.name)}</span>
         <b class="num pos">${fmtSigned(r.amount, 'income')}</b>
       </div>
-      <div class="tg-sub">${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)} · ${left ? `${left} даалгавар үлдсэн` : 'бүгд байршсан ✓'}</div>
+      <div class="tg-sub">${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)} · ${left ? `энэ орлогоос ${left} үлдсэн` : 'бүгд байршсан ✓'}</div>
       <ul class="list">${tasks.map((t) => taskRow(r, t)).join('')}</ul>
       ${left > 1 ? `<button type="button" class="btn small block tg-all" data-done-all="${r.id}" ${S.busy.has(`${r.id}:*`) ? 'disabled' : ''}>✅ Бүгдийг байршуулсан (${left})</button>` : ''}
     </div>`;
@@ -841,25 +926,25 @@ function renderHistory() {
   $('#history').innerHTML = `
     <h2>📚 Сар бүрийн хуваарилалт</h2>
     ${rows.length ? `
-    ${last ? `<div class="hist-total">
+      ${last ? `<div class="hist-total">
       <span>Одоогийн үлдэгдэл</span>
-      ${ACCOUNTS.map((a) => `<b class="num ${last.balances[a.key] < 0 ? 'neg' : ''}" title="${a.name}">${a.emoji} ${fmtShort(last.balances[a.key])}</b>`).join('')}
+      ${ACCOUNTS.map((a) => `<b class="num ${last.balances[a.key] < 0 ? 'neg' : ''}" title="${a.name}">${a.emoji} ${fmt(last.balances[a.key])}</b>`).join('')}
     </div>` : ''}
     <ul class="hist">
       ${rows.map((r) => `
         <li class="${r.month === S.month ? 'sel' : ''}">
           <div class="h-top">
             <span>${monthLabel(r.month, r.month.slice(0, 4) !== cur.slice(0, 4))}</span>
-            <b class="num ${r.income ? 'pos' : 'muted'}">${r.income ? `+${fmtNum(r.income)}` : '0'}</b>
+            <b class="num ${r.income ? 'pos' : 'muted'}">${r.income ? `+${fmt(r.income)}` : fmt(0)}</b>
           </div>
           <div class="h-sub">
-            ${ACCOUNTS.map((a) => `<span title="${a.name}">${a.emoji} ${fmtNum(r.alloc[a.key])}</span>`).join('')}
-            ${r.excess ? `<span>🎉 +${fmtNum(r.excess)}</span>` : ''}
+            ${ACCOUNTS.map((a) => `<span title="${a.name}">${a.emoji} ${fmt(r.alloc[a.key])}</span>`).join('')}
+            ${r.excess ? `<span>🎉 +${fmt(r.excess)}</span>` : ''}
           </div>
           <div class="h-sub">
-            <span>🧾 ${r.spent ? `${MINUS}${fmtNum(r.spent)}` : '0'}</span>
-            ${r.fundSpent ? `<span>💸 ${MINUS}${fmtNum(r.fundSpent)}</span>` : ''}
-            <span class="${r.householdLeft < 0 ? 'neg' : 'pos'}">🌱 ${r.householdLeft > 0 ? '+' : ''}${fmtNum(r.householdLeft)}</span>
+            <span>🧾 ${r.spent ? fmtSigned(r.spent, 'expense') : fmt(0)}</span>
+            ${r.fundSpent ? `<span>💸 ${fmtSigned(r.fundSpent, 'expense')}</span>` : ''}
+            <span class="${r.householdLeft < 0 ? 'neg' : 'pos'}">🌱 ${signed(r.householdLeft)}</span>
           </div>
         </li>`).join('')}
     </ul>
@@ -968,12 +1053,12 @@ function renderAchievements() {
     </div>
     ${st.next ? `
       <div class="milestone">
-        <div class="ms-row"><span>💎 Хуримтлал <b class="num">${fmtShort(st.saved)}</b></span><span class="muted">🔒 ${fmtShort(st.next)}</span></div>
+        <div class="ms-row"><span>💎 Хуримтлал <b class="num">${fmt(st.saved)}</b></span><span class="muted">🔒 ${fmt(st.next)}</span></div>
         <div class="bar"><i style="width:${pct(st.saved, st.next)}%"></i></div>
-        <small>Дараагийн босго хүртэл ${fmtShort(st.next - st.saved)} үлдлээ</small>
+        <small>Дараагийн босго хүртэл ${fmt(st.next - st.saved)} үлдлээ</small>
       </div>` : ''}
 
-    ${S.achievementsMissing ? '<p class="note">⚠️ Зураг нэмэхийн тулд Supabase → SQL Editor дээр <b>supabase/achievements.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : ''}
+    ${devOnly(S.achievementsMissing ? '<p class="note">⚠️ Зураг нэмэхийн тулд Supabase → SQL Editor дээр <b>supabase/achievements.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : '')}
     ${list.length
       ? `<div class="ach-grid">${list.map((r, i) => achCard(r, i === 0)).join('')}</div>`
       : `<button type="button" class="ach-empty" data-ach-add>
@@ -1085,7 +1170,7 @@ function wireViewer() {
 
 function openAchSheet() {
   if (S.achievementsMissing) {
-    toast('⚠️ Эхлээд Supabase дээр supabase/achievements.sql-ийг ажиллуулна уу', { kind: 'err', ms: 6000 });
+    toast(S.store.mode === 'demo' ? '⚠️ Эхлээд Supabase дээр supabase/achievements.sql-ийг ажиллуулна уу' : '⚠️ Зураг нэмэх одоогоор боломжгүй.', { kind: 'err', ms: 6000 });
     return;
   }
   S.ach = { emoji: '🏆', images: null };
@@ -1180,14 +1265,14 @@ const NOTIF_TEXT = {
   denied: ['🚫 Хориглогдсон', 'Утасны тохиргоо → хөтөч/апп → Мэдэгдэл хэсгээс зөвшөөрнө үү.'],
   'ios-install': ['📲 Эхлээд апп болгон суулгана', 'iPhone дээр Safari → Хуваалцах (⬆️) → “Нүүр дэлгэцэнд нэмэх” хийгээд, нүүр дэлгэцээс нээж асаана (iOS 16.4+).'],
   unsupported: ['⚠️ Дэмжигдэхгүй', 'Энэ хөтөч push мэдэгдэл дэмжихгүй байна. Chrome эсвэл Safari ашиглана уу.'],
-  'no-key': ['⚠️ Тохируулаагүй', 'config.js-д VAPID_PUBLIC_KEY алга.'],
+  'no-key': ['⚠️ Тохируулаагүй', 'Мэдэгдэл одоогоор идэвхгүй.'],
 };
 
 async function renderNotif() {
   const box = $('#notif-card');
   if (!box) return;
   const st = S.store.mode === 'demo' ? 'demo' : await pushState();
-  const [label, note] = st === 'demo' ? ['🧪 Демо горим', 'Push мэдэгдэл Supabase-тэй холбогдсон үед ажиллана.'] : NOTIF_TEXT[st];
+  const [label, note] = st === 'demo' ? ['🧪 Демо горим', 'Мэдэгдэл демо горимд ирэхгүй.'] : NOTIF_TEXT[st];
   box.innerHTML = `
     <h2>🔔 Мэдэгдэл</h2>
     <div class="notif-row"><b>${label}</b></div>
@@ -1280,7 +1365,7 @@ function renderIncomeTypes() {
   box.innerHTML = `
     <h2>💼 Орлогын төрөл</h2>
     <p class="note" style="margin-top:4px">Нэр болон хуваарилалтыг хэн нь ч сольж болно. Өөрчлөлт зөвхөн цаашид бүртгэх орлогод үйлчилнэ.</p>
-    ${S.incomeTypesMissing ? '<p class="note">⚠️ Хадгалахын тулд Supabase → SQL Editor дээр <b>supabase/income-types.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : ''}
+    ${devOnly(S.incomeTypesMissing ? '<p class="note">⚠️ Хадгалахын тулд Supabase → SQL Editor дээр <b>supabase/income-types.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : '')}
     <ul class="list">
       ${INCOME_SOURCES.map((s) => {
         const t = S.incomeTypes.find((x) => x.key === s.key);
@@ -1300,7 +1385,7 @@ function renderIncomeTypes() {
 
 function openTypeSheet(key) {
   if (S.incomeTypesMissing) {
-    toast('⚠️ Эхлээд Supabase дээр supabase/income-types.sql-ийг ажиллуулна уу', { kind: 'err', ms: 6000 });
+    toast(S.store.mode === 'demo' ? '⚠️ Эхлээд Supabase дээр supabase/income-types.sql-ийг ажиллуулна уу' : '⚠️ Орлогын төрөл одоогоор засагдахгүй.', { kind: 'err', ms: 6000 });
     return;
   }
   const s = sourceOf(key);
@@ -1333,7 +1418,7 @@ function renderTypeTotals() {
     const a = e.custom && total === 100 ? cleanAlloc(e.pct) : null;
     const sp = a ? splitByPct(500_000, a) : null;
     ex.textContent = sp
-      ? `500,000₮ → ${ACCOUNTS.filter((x) => sp[x.key]).map((x) => `${x.emoji} ${fmtNum(sp[x.key])}`).join(' · ')}`
+      ? `500,000₮ → ${ACCOUNTS.filter((x) => sp[x.key]).map((x) => `${x.emoji} ${fmt(sp[x.key])}`).join(' · ')}`
       : e.custom ? '' : '🏠 60 / 🎯 20 / 🛡️ 20 · сард 4 саяас илүү бол илүүдэл 🎯, 🛡️ дансанд тэнцүү';
   }
   const btn = $('#type-save');
@@ -1424,7 +1509,7 @@ function renderMore() {
       <label class="btn" for="avatar-file" style="flex:1">📷 Профайл зураг солих</label>
       ${S.me.avatar_url ? '<button type="button" class="btn" id="avatar-remove">Арилгах</button>' : ''}
     </div>
-    <div class="btn-row"><button type="button" class="btn block" id="logout">🚪 ${demo ? 'Хэрэглэгч солих' : 'Гарах'}</button></div>`;
+    <div class="btn-row"><button type="button" class="btn block" id="logout">🚪 Гарах</button></div>`;
 
   renderNotif();
   renderMusic();
@@ -1432,7 +1517,7 @@ function renderMore() {
 
   $('#rules').innerHTML = `
     <h2>📐 Хуваарилалтын дүрэм</h2>
-    <ul class="rule-list">${ACCOUNTS.map((a) => `<li><span>${a.emoji} ${a.name}</span><b>${a.pct}%</b><span class="num muted">${fmtShort((TARGET * a.pct) / 100)}</span></li>`).join('')}</ul>
+    <ul class="rule-list">${ACCOUNTS.map((a) => `<li><span>${a.emoji} ${a.name}</span><b>${a.pct}%</b><span class="num muted">${fmt((TARGET * a.pct) / 100)}</span></li>`).join('')}</ul>
     <p class="note">Сарын орлого 4 сая хүртэл дээрх хувиар, илүүдэл нь 🎯 🛡️ дансанд тэнцүү хуваагдана.</p>
     <details>
       <summary>Дэлгэрэнгүй</summary>
@@ -1456,6 +1541,20 @@ function renderBackdropPick() {
     <button type="button" role="radio" data-bg-pick="${b.key}" aria-checked="${b.key === pref}">
       <span class="bd-e" aria-hidden="true">${b.emoji}</span>${b.name}${b.key === 'auto' ? `<small>одоо ${season.emoji}</small>` : ''}
     </button>`).join('');
+  renderMotionToggle();
+}
+
+function renderMotionToggle() {
+  const host = $('#motion-row');
+  if (!host) return;
+  const reducedNow = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const on = !reducedNow && !motionPrefOff() && motionEnabled();
+  host.innerHTML = `
+    <div>
+      <b>🍂 Хөдөлгөөн</b>
+      <p class="note">${reducedNow ? 'Утасны тохиргоо хөдөлгөөнийг багасгасан тул навч, цас унтарсан.' : 'Навч, цас, бороо товч болон текст дээр давхцахгүй.'}</p>
+    </div>
+    <button type="button" id="motion-toggle" data-motion-toggle aria-pressed="${on}" ${reducedNow ? 'disabled' : ''}>${reducedNow ? 'Унтраалттай' : on ? 'Асаалттай' : 'Унтраалттай'}</button>`;
 }
 
 // ============================================================
@@ -1489,7 +1588,7 @@ function tickerMessages() {
 
   const saved = SAVING_KEYS.reduce((s, k) => s + b[k], 0);
   const next = SAVED_MILESTONES.find((x) => saved < x);
-  if (next && saved > 0) m.push(`💎 Хуримтлал ${fmtShort(next)} хүрэхэд ${fmt(next - saved)} л үлдлээ`);
+  if (next && saved > 0) m.push(`💎 Хуримтлал ${fmt(next)} хүрэхэд ${fmt(next - saved)} л үлдлээ`);
   const entries = S.expenses.filter((x) => monthKey(x.date) === S.month).length + S.incomes.filter((x) => monthKey(x.date) === S.month).length;
   if (entries >= 5) m.push(`✍️ Энэ сард ${entries} бүртгэл хийлээ — сахилга бат гайхалтай!`);
   if (S.achievements.length) m.push(`📸 ${S.achievements.length} амжилтаа тэмдэглэсэн — дараагийнх юу вэ?`);
@@ -1521,17 +1620,32 @@ function refreshTicker() {
   showTicker();
 }
 
+const TICKER_KEY = 'bidnii-sanhuu-ticker-off';
+function tickerDismissed() {
+  try { return sessionStorage.getItem(TICKER_KEY) === '1'; } catch { return false; }
+}
+function applyTickerVisibility() {
+  $('#ticker-wrap')?.classList.toggle('dismissed', tickerDismissed());
+}
+function dismissTicker() {
+  try { sessionStorage.setItem(TICKER_KEY, '1'); } catch { /* ignore */ }
+  applyTickerVisibility();
+  clearInterval(tickerTimer);
+}
+
 let tickerTimer = 0;
 function startTicker() {
   const step = () => {
-    if (!tickerMsgs.length || document.hidden) return;
+    if (!tickerMsgs.length || document.hidden || tickerDismissed()) return;
     tickerIdx = (tickerIdx + 1) % tickerMsgs.length;
     showTicker();
   };
   const restart = () => { clearInterval(tickerTimer); tickerTimer = setInterval(step, 6000); };
-  // Товшвол дараагийн мессеж
+  applyTickerVisibility();
+  // Товшвол дараагийн мессеж. Хаах товч тусад нь.
   $('#ticker').addEventListener('click', () => { step(); restart(); });
-  restart();
+  $('#ticker-close').addEventListener('click', (e) => { e.stopPropagation(); dismissTicker(); });
+  if (!tickerDismissed()) restart();
 }
 
 // ============================================================
@@ -1563,7 +1677,9 @@ function renderChat({ scroll = 'keep' } = {}) {
   log.hidden = missing;
   const note = $('#chat-missing');
   note.hidden = !missing;
-  if (missing) note.textContent = 'Эхлээд Supabase дээр supabase/chat.sql-ийг ажиллуулна уу. Дараа нь аппыг дахин нээнэ үү.';
+  if (missing) note.textContent = S.store.mode === 'demo'
+    ? 'Эхлээд Supabase дээр supabase/chat.sql-ийг ажиллуулна уу. Дараа нь аппыг дахин нээнэ үү.'
+    : 'Чат одоогоор боломжгүй.';
 
   const prev = log.scrollTop;
   const stick = log.clientHeight > 0 && log.scrollHeight - log.scrollTop - log.clientHeight < 96;
@@ -1763,23 +1879,69 @@ function pinChat() {
   app.style.transform = vv.offsetTop ? `translateY(${vv.offsetTop}px)` : '';
 }
 
-let quickVisible = true;
-function updateFab() {
-  $('#fab').classList.toggle('hide', (S.view === 'home' && quickVisible) || S.view === 'ach' || S.view === 'more' || S.view === 'chat');
+let fabHiddenByScroll = false;
+
+// FAB-ын байр (transform-оос үл хамаарна) дээр товч, оролт байвал нууна.
+function fabOverlapsControl() {
+  const fab = $('#fab');
+  if (!fab) return false;
+  const cs = getComputedStyle(fab);
+  const width = parseFloat(cs.width) || 60;
+  const height = parseFloat(cs.height) || 60;
+  const right = parseFloat(cs.right) || 16;
+  const bottom = parseFloat(cs.bottom) || 82;
+  const left = innerWidth - right - width;
+  const top = innerHeight - bottom - height;
+  const prev = fab.style.pointerEvents;
+  fab.style.pointerEvents = 'none';
+  const spots = [[0.5, 0.28], [0.22, 0.55], [0.78, 0.55], [0.5, 0.82]];
+  let hit = false;
+  for (const [px, py] of spots) {
+    const el = document.elementFromPoint(left + width * px, top + height * py);
+    if (el?.closest('button, a, input, select, textarea, label, summary, .log, .hist li, .card-head, .between, .cat-row, .task, .tgroup')) { hit = true; break; }
+  }
+  fab.style.pointerEvents = prev;
+  return hit;
 }
 
-function goQuick() {
-  setView('home', false);
-  const q = $('#quick');
-  q.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
-  setTimeout(() => $('#amount').focus({ preventScroll: true }), reducedMotion ? 0 : 350);
+function updateFab() {
+  const sheetOpen = $('#tx-sheet')?.open;
+  // Чат, Бусад дээр бүртгэл нэмэхгүй. Доош гүйлгэхэд, эсвэл товч дээр давхарлавал нуугдана.
+  const hide = fabHiddenByScroll || sheetOpen || fabOverlapsControl() || S.view === 'more' || S.view === 'chat';
+  $('#fab').classList.toggle('hide', hide);
+}
+
+function openTxSheet() {
+  const sheet = $('#tx-sheet');
+  if (!sheet) return;
+  if (!sheet.open) sheet.showModal();
+  const form = $('#tx-form');
+  if (form) { form.scrollTop = 0; form.scrollLeft = 0; }
+  updateFab();
+  setTimeout(() => $('#amount')?.focus({ preventScroll: true }), reducedMotion ? 0 : 280);
+}
+
+function closeTxSheet() {
+  const sheet = $('#tx-sheet');
+  if (sheet?.open) sheet.close();
+  updateFab();
 }
 
 function wireGlobal() {
   $$('.tabbar button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.go)));
   wireChat();
   addEventListener('hashchange', () => setView(location.hash.slice(1) || 'home', false));
-  $('#fab').addEventListener('click', goQuick);
+  $('#fab').addEventListener('click', openTxSheet);
+  let lastScrollY = 0;
+  addEventListener('scroll', () => {
+    const y = window.scrollY;
+    const dy = y - lastScrollY;
+    if (y < 24) fabHiddenByScroll = false;
+    else if (dy > 8) fabHiddenByScroll = true;
+    else if (dy < -8) fabHiddenByScroll = false;
+    lastScrollY = y;
+    updateFab();
+  }, { passive: true });
   $('#who').addEventListener('click', () => setView('more'));
   $('#music-btn').addEventListener('click', playNext);
   // Өөрийн YouTube холбоос: буруу бол анхааруулна
@@ -1794,8 +1956,6 @@ function wireGlobal() {
   });
   document.addEventListener('input', (e) => { if (e.target.id === 'music-vol') setMusicVolume(e.target.value / 100); });
   $('#brand').addEventListener('click', (e) => { e.preventDefault(); setView('home'); });
-
-  new IntersectionObserver(([e]) => { quickVisible = e.isIntersecting; updateFab(); }, { threshold: 0.15 }).observe($('#quick'));
 
   $('#month-select').addEventListener('change', (e) => { S.month = e.target.value; recompute(); renderAll(); });
   const step = (dir) => {
@@ -1840,6 +2000,11 @@ function wireGlobal() {
     if (e.target.closest('#music-next')) return playNext();
     const bd = e.target.closest('[data-bg-pick]');
     if (bd) { setBackdrop(bd.dataset.bgPick); renderBackdropPick(); return; }
+    if (e.target.closest('[data-motion-toggle]')) {
+      setMotionEnabled(motionPrefOff());
+      renderMotionToggle();
+      return;
+    }
     const mm = e.target.closest('[data-music-mood]');
     if (mm) return setMusicMood(mm.dataset.musicMood);
     const et = e.target.closest('[data-edit-type]');
