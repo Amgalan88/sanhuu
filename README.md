@@ -46,20 +46,35 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
 
 ## 1. Supabase төсөл үүсгэх
 
-1. <https://supabase.com> → **New project**. Бүс нутгаас Сингапур/Токиог сонговол хурдан.
-2. **SQL Editor** → [supabase/schema.sql](supabase/schema.sql)-ийн агуулгыг бүхэлд нь хуулж **Run**.
-   Энэ нь `admins`, `incomes`, `expenses`, `audit_log` хүснэгт, RLS бодлого, Realtime-ийг тохируулна.
-   Дараа нь дарааллаар нь:
-   - [supabase/achievements.sql](supabase/achievements.sql) — “🏆 Бидний амжилтууд” хүснэгт ба зургийн хувийн сан (Storage bucket `achievements`)
-   - [supabase/profile.sql](supabase/profile.sql) — профайл зураг (хүн бүр зөвхөн өөрийнхөө зургийг солино)
-   - [supabase/push.sql](supabase/push.sql) — push мэдэгдлийн төхөөрөмжүүд
-   - [supabase/transfers.sql](supabase/transfers.sql) — хуваарилалтын даалгавар (“✅ Байршуулсан” тэмдэглэл)
-   - [supabase/expense-accounts.sql](supabase/expense-accounts.sql) — зарлагыг хуримтлалын данснаас гаргах (`expenses.account`)
-   - [supabase/income-types.sql](supabase/income-types.sql) — орлогын төрлийн нэр, хуваарилалтын тохиргоо (`income_types`, `incomes.alloc`)
-   - [supabase/chat.sql](supabase/chat.sql) — хоёр админы чат (`messages`, `chat_reads`) ба Realtime
+1. <https://supabase.com> → **New project**. Бүс нутгаас Сингапур/Токиог сонговол хурдан. Postgres 17.
+2. **Миграци** — хоосон staging (эсвэл цоо шинэ) төсөл дээр [supabase/migrations/](supabase/migrations/)-ийг
+   дарааллаар нь ажиллуулна. SQL Editor-оор хуучин `supabase/*.sql` файлуудыг бүү давтана.
+
+   ```bash
+   npx supabase login
+   npx supabase link --project-ref <staging-ref>
+   npx supabase db push --remote
+   ```
+
+   | Файл | Юу хийх вэ |
+   | --- | --- |
+   | `20261031170000_baseline.sql` | `schema.sql` → `income-types.sql` хүртэл: хүснэгт, `is_admin()`, RLS, Realtime publication, хувийн storage bucket `achievements`. `profile.sql` доторх mock мөр устгах `DELETE` багтсан. |
+   | `20261031171342_couple_chat.sql` | Чат (`messages`, `chat_reads`) ба Realtime. Version прод дээрх түүхтэй адил (`couple_chat`) — бүү солино. |
+   | `20261114123000_security_advisor_fixes.sql` | `is_admin` / `rls_auto_enable` дээрх илүү EXECUTE, `auth.uid()`-ийн RLS initplan, индексгүй foreign key. |
+
+   Хуучин файлууд (`schema.sql`, `achievements.sql`, `profile.sql`, `push.sql`, `transfers.sql`,
+   `expense-accounts.sql`, `income-types.sql`, `chat.sql`) энэ түүхийн эх сурвалж. Шинэ төсөл дээр
+   тэдгээрийг гараар ажиллуулах шаардлагагүй.
+
+   Security миграци `rls_auto_enable`-ийг `private` схем рүү гаргана. **API → Exposed schemas**
+   дээр `private`-ийг бүү нэм.
+
 3. **Authentication → Sign In / Providers → Email**:
    - **Allow new users to sign up**-ийг **унтраана** (гадны хүн бүртгүүлэхгүй).
    - Хүсвэл **Confirm email**-ийг унтраана.
+   - **Leaked password protection** (HaveIBeenPwned, цоорсон нууц үг) асаана.
+     Dashboard → Authentication → Attack Protection, эсвэл Providers → Email.
+     Энэ тохиргоо SQL миграцид багтахгүй — гараар.
 4. **Project Settings → API**-аас `Project URL` ба `anon public` түлхүүрийг
    [js/config.js](js/config.js)-д бичнэ:
 
@@ -69,6 +84,34 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    ```
 
    anon key нийтэд ил байж болно — өгөгдлийг RLS хамгаална.
+
+### Прод дээрх түүх (дахин бүү ажиллуул)
+
+Прод (`evtawdwjlwniwjjimkfh`) дээр схем гараар бүтсэн. `supabase_migrations.schema_migrations`
+дотор одоогоор зөвхөн `20261031171342` (`couple_chat`) бичигдсэн. Baseline-д mock мөр
+устгах `DELETE` байгаа тул түүнийг прод дээр **дахин ажиллуулж болохгүй** — зөвхөн
+“аль хэдийн applied” гэж тэмдэглэнэ. Дараа нь `db push` зөвхөн шинэ
+`20261114123000_security_advisor_fixes` миграцийг ажиллуулна.
+
+```bash
+npx supabase link --project-ref evtawdwjlwniwjjimkfh
+npx supabase migration list --remote
+npx supabase migration repair --status applied 20261031170000 --remote
+npx supabase db push --remote
+```
+
+`migration repair` зөвхөн түүхийн мөрийг засна, SQL ажиллуулахгүй.
+`couple_chat` аль хэдийн түүхэнд байгаа тул алгасна. Хэрэв `db push` локал
+`20261031171342_couple_chat.sql` прод дээр хадгалсан `statements`-тай зөрж байна
+гэж зогсвол файлыг засаад дахин бүү түлх — эхлээд remote мөрийн SQL-ийг харьцуул.
+
+`db push` нь notify Edge Function-ийг байршуулахгүй. Чатны холбоос (`url`) зэрэг
+шинэчлэл прод дээр очихын тулд `notify`-ийг гараар дахин deploy хийнэ
+(шинэ нууц түлхүүр хэрэггүй):
+
+```bash
+npx supabase functions deploy notify --project-ref evtawdwjlwniwjjimkfh
+```
 
 ## 2. Хоёр админ нэмэх
 
@@ -114,7 +157,7 @@ Framework: **Other**, Build Command хоосон, Output Directory `.` → **Dep
 
 Нэг нь орлого, зарлага, амжилт нэмэх/устгахад нөгөө хүний утсанд мэдэгдэл очно.
 
-1. **SQL:** [supabase/push.sql](supabase/push.sql)-ийг SQL Editor-т ажиллуулна.
+1. **SQL:** push хүснэгт baseline миграцид багтсан ([supabase/push.sql](supabase/push.sql) нь түүний эх сурвалж). Шинэ төсөл дээр `db push` хангалттай.
 2. **Edge Function:** Supabase → **Edge Functions → Deploy a new function → Via Editor**
    → нэр нь яг `notify` → [supabase/functions/notify/index.ts](supabase/functions/notify/index.ts)-ийн агуулгыг бүхэлд нь хуулж тавиад **Deploy**.
 3. **Secrets:** Edge Functions → **Secrets** → дараах 3-ыг нэмнэ (утгыг `.secrets/vapid.txt`-ээс авна;
@@ -140,6 +183,8 @@ CLI-аар хийх бол: `npx supabase login` →
 npm test
 ```
 
+Pull request бүрд GitHub Actions (`.github/workflows/test.yml`) энэ командыг ажиллуулна.
+
 [tests/finance.test.mjs](tests/finance.test.mjs): 4 сая, 4.6 сая, 3.8 сая,
 бутархайн үлдэгдэл, шилжих үлдэгдэл (7–9-р сарын тестийн өгөгдлөөр 225,500 → 301,500 → 360,500),
 хэтрэлт дараа сараас хасагдах, хоосон сар, санамсаргүй дүнгийн шалгалт.
@@ -158,14 +203,16 @@ js/coins3d.js           Three.js r128 зоосны овоо
 js/confetti.js          конфетти 🎉
 js/celebrate.js         баярын цонх, эможи бороо
 js/image.js             зураг жижгэрүүлэх (upload-аас өмнө)
-supabase/schema.sql     хүснэгт, RLS, Realtime
-supabase/achievements.sql  амжилтын хүснэгт + зургийн сан
-supabase/profile.sql    профайл зураг
-supabase/push.sql       push мэдэгдлийн төхөөрөмжүүд
-supabase/transfers.sql  хуваарилалтын даалгавар: байршуулсан тэмдэглэл
-supabase/expense-accounts.sql  зарлага аль данснаас гарсан (expenses.account)
-supabase/income-types.sql  орлогын төрлийн тохиргоо (нэр, эможи, хуваарилалт)
-supabase/chat.sql       хоёр админы чат (messages, chat_reads, RLS, Realtime)
+supabase/config.toml   Supabase CLI (db push). major_version = 17
+supabase/migrations/    хоосон төсөлд хэрэглэх түүх (baseline, couple_chat, security)
+supabase/schema.sql     түүхэн скрипт — baseline-д багтсан
+supabase/achievements.sql  түүхэн скрипт — амжилт + зургийн сан
+supabase/profile.sql    түүхэн скрипт — профайл зураг
+supabase/push.sql       түүхэн скрипт — push төхөөрөмжүүд
+supabase/transfers.sql  түүхэн скрипт — байршуулсан тэмдэглэл
+supabase/expense-accounts.sql  түүхэн скрипт — expenses.account
+supabase/income-types.sql  түүхэн скрипт — орлогын төрөл
+supabase/chat.sql       түүхэн скрипт — 20261031171342_couple_chat-тай адил
 js/chat.js              мессеж цэвэрлэх, уншаагүй тоо (цэвэр функц)
 supabase/functions/notify/  push илгээх Edge Function
 sw.js                   service worker (push)
