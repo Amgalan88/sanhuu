@@ -5,7 +5,13 @@ import {
   applyIncomeTypes, cleanAlloc, splitByPct, allocLabel, DEFAULT_SOURCES, accountKey, accountOf, MERGED_INTO,
 } from './finance.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-import { SupabaseStore, LocalStore } from './store.js';
+import { SupabaseStore, LocalStore, uuid } from './store.js';
+import { sampleTween, retargetTween } from './anim.js';
+import { categoryStyle } from './category-colors.js';
+import {
+  optimisticAdd, commitAdd, rollbackAdd, optimisticDelete, commitDelete, rollbackDelete,
+  reconcileTx, txRollbackMessage,
+} from './tx-optimistic.js';
 import { createCoins3D } from './coins3d.js';
 import { confetti } from './confetti.js';
 import { celebrate, pick } from './celebrate.js';
@@ -78,6 +84,7 @@ const S = {
   splits: {},             // орлого бүрийн хуваарилалт: { [income.id]: { household, … } }
   busy: new Set(),        // илгээж буй даалгавар (давхар дарахаас сэргийлнэ)
   fresh: null,            // дөнгөж бүртгэсэн орлого (даалгаврыг тодруулна)
+  txPending: [],          // optimistic нэмэлт/устгалт (түр id → жинхэнэ id)
   messages: [],
   messagesMissing: false,
   chatRead: null,         // ISO — энэ хэрэглэгч хүртэл уншсан
@@ -281,7 +288,12 @@ function renderWho() {
 }
 
 async function reload() {
-  Object.assign(S, await S.store.loadAll());
+  const data = await S.store.loadAll();
+  const merged = reconcileTx(txState(), { incomes: data.incomes, expenses: data.expenses });
+  Object.assign(S, data);
+  S.incomes = merged.incomes;
+  S.expenses = merged.expenses;
+  S.txPending = merged.pending;
   applyTypes();
   S.me = S.store.me || S.me; // профайл зураг шинэчлэгдсэн байж болно
   renderWho();
@@ -309,6 +321,18 @@ function recompute() {
   const cur = currentMonth();
   S.ledger = buildLedger(S.incomes, S.expenses, { toMonth: S.month > cur ? S.month : cur });
   S.splits = incomeSplits(S.incomes);
+}
+
+function txState() {
+  return { incomes: S.incomes, expenses: S.expenses, pending: S.txPending || [] };
+}
+
+function applyTx(state) {
+  S.incomes = state.incomes;
+  S.expenses = state.expenses;
+  S.txPending = state.pending || [];
+  recompute();
+  renderAll();
 }
 
 function onRemote(ev) {
@@ -405,8 +429,9 @@ function renderQuickControls() {
     : INCOME_CHIPS.map((n) => `<button type="button" class="chip pos" data-add="${n}">+${fmtNum(n)}</button>`).join('')
       + '<button type="button" class="chip reset" data-add="reset" aria-label="Тэглэх">↺</button>';
   const list = isExp ? EXPENSE_CATEGORIES : INCOME_SOURCES;
+  const theme = getTheme();
   $('#cats').innerHTML = list.map((c) => `
-    <button type="button" class="cat" data-cat="${c.key}" aria-pressed="false">
+    <button type="button" class="cat" data-cat="${c.key}" aria-pressed="false"${isExp ? ` style="${categoryStyle(c.key, theme)}"` : ''}>
       <span class="e">${c.emoji}</span>${esc(c.name)}
     </button>`).join('');
   // Зарлагыг аль данснаас гаргах: өрх (үндсэн), 🎯 зорилтот эсвэл 🛡️ эрсдэлийн сан
@@ -518,23 +543,38 @@ async function save() {
     : acc === 'household' ? { date, amount, category: cat, note } : { date, amount, category: cat, note, account: acc };
   const m = monthKey(date);
   const incomeBefore = S.incomes.filter((r) => monthKey(r.date) === m).reduce((s, r) => s + r.amount, 0);
+  const tempId = `tmp-${uuid()}`;
 
   S.saving = true;
   $('#save').classList.add('busy');
+  S.q.amount = 0;
+  if (kind === 'expense') { S.q.cat = null; S.q.acc = 'household'; }
+  $('#amount').value = '';
+  $('#note').value = '';
+  S.month = m;
+  // Жагсаалт, нийт дүн серверийн хариуг хүлээхгүй. Амжилтгүй бол applyTx буцаана.
+  applyTx(optimisticAdd(txState(), {
+    kind, fields, tempId, createdBy: S.me.user_id, createdAt: new Date().toISOString(),
+  }));
+  closeTxSheet();
+
   try {
     const row = await S.store.add(kind, fields);
-    (kind === 'expense' ? S.expenses : S.incomes).push(row);
+    const state = commitAdd(txState(), tempId, row);
+    applyTx(state);
+    const doomed = state.pending.find((p) => p.op === 'delete' && p.tempId === tempId);
+    if (doomed) {
+      try {
+        await S.store.remove(kind, row, 'delete');
+        applyTx(commitDelete(txState(), row.id));
+      } catch (err) {
+        applyTx(rollbackDelete(txState(), row.id));
+        toast(txRollbackMessage('delete', err), { kind: 'err', ms: 6500 });
+      }
+      scheduleReload(800);
+      return;
+    }
     S.audit.unshift({ id: `tmp-${row.id}`, at: new Date().toISOString(), user_id: S.me.user_id, action: 'add', text: describe(kind, row), ref_id: row.id });
-
-    S.q.amount = 0;
-    if (kind === 'expense') { S.q.cat = null; S.q.acc = 'household'; }
-    $('#amount').value = '';
-    $('#note').value = '';
-    S.month = m;
-    recompute();
-    renderAll();
-
-    closeTxSheet();
     const undo = () => undoAdd(kind, row);
     if (kind === 'expense') {
       const from = acc === 'household' ? '' : ` ${ACC[acc].emoji} ${ACC[acc].from}`;
@@ -546,7 +586,9 @@ async function save() {
     }
     scheduleReload(800);
   } catch (err) {
-    toast(`⚠️ Хадгалж чадсангүй: ${err.message}`, { kind: 'err', ms: 6000 });
+    const cancelled = (S.txPending || []).some((p) => p.tempId === tempId && (p.superseded || p.op === 'delete'));
+    applyTx(rollbackAdd(txState(), tempId));
+    if (!cancelled) toast(txRollbackMessage('add', err), { kind: 'err', ms: 6500 });
   } finally {
     S.saving = false;
     $('#save').classList.remove('busy');
@@ -633,7 +675,86 @@ function renderMonthNav() {
   $('#month-next').disabled = i <= 0;
 }
 
-// Сарын самбар: орлого ба 4 саяын зорилт. Хуваарилалтын дэлгэрэнгүй нь "дэлгэх" дотор.
+// ---------- 60/20/20 график: дундаас нь шинэ зорилт, тэгээс дахин үсрэхгүй ----------
+const ALLOC_MS = 1200;
+let allocTween = null;
+let allocRaf = 0;
+
+function allocTargets(r) {
+  const scale = Math.max(r.income || 0, TARGET, 1);
+  const out = {};
+  for (const a of ACCOUNTS) {
+    out[`w:${a.key}`] = (r.alloc[a.key] / scale) * 100;
+    out[`n:${a.key}`] = r.alloc[a.key];
+  }
+  return out;
+}
+
+function sameTargets(a, b) {
+  if (!a || !b) return false;
+  return Object.keys(b).every((k) => Math.abs((a[k] ?? 0) - b[k]) < 0.05);
+}
+
+function stopAlloc() {
+  if (allocRaf) cancelAnimationFrame(allocRaf);
+  allocRaf = 0;
+}
+
+function paintAlloc(values) {
+  const total = ACCOUNTS.reduce((s, a) => s + (values[`n:${a.key}`] || 0), 0);
+  for (const a of ACCOUNTS) {
+    const bar = document.querySelector(`#alloc-chart [data-acc="${a.key}"]`);
+    const amt = document.querySelector(`#alloc-chart [data-alloc-amt="${a.key}"]`);
+    const label = document.querySelector(`#alloc-chart [data-alloc-pct="${a.key}"]`);
+    const width = Math.max(0, values[`w:${a.key}`] || 0);
+    const amount = Math.round(values[`n:${a.key}`] || 0);
+    if (bar) bar.style.width = `${width}%`;
+    if (amt) amt.textContent = fmt(amount);
+    if (label) label.textContent = `${total > 0 ? Math.round((amount / total) * 100) : a.pct}%`;
+  }
+}
+
+function stepAlloc(now) {
+  if (!allocTween) { allocRaf = 0; return; }
+  if (!motionEnabled() || !(allocTween.duration > 0)) {
+    paintAlloc(allocTween.to);
+    allocRaf = 0;
+    return;
+  }
+  const elapsed = now - allocTween.t0;
+  paintAlloc(sampleTween(allocTween, elapsed));
+  if (elapsed < allocTween.duration) allocRaf = requestAnimationFrame(stepAlloc);
+  else allocRaf = 0;
+}
+
+function kickAlloc() {
+  if (!allocRaf) allocRaf = requestAnimationFrame(stepAlloc);
+}
+
+function syncAllocTween(targets) {
+  const now = performance.now();
+  const instant = !motionEnabled();
+  if (!allocTween) {
+    allocTween = { from: { ...targets }, to: { ...targets }, duration: 0, t0: now };
+    return sampleTween(allocTween, 0);
+  }
+  if (instant) {
+    stopAlloc();
+    allocTween = { from: { ...targets }, to: { ...targets }, duration: 0, t0: now };
+    return targets;
+  }
+  if (!sameTargets(allocTween.to, targets)) {
+    const elapsed = now - allocTween.t0;
+    const next = retargetTween({ from: allocTween.from, to: allocTween.to, duration: ALLOC_MS }, targets, elapsed);
+    allocTween = { ...next, duration: ALLOC_MS, t0: now };
+    kickAlloc();
+  } else if (allocTween.duration > 0 && now - allocTween.t0 < allocTween.duration) {
+    kickAlloc();
+  }
+  return sampleTween(allocTween, now - allocTween.t0);
+}
+
+// Сарын самбар: орлого ба 4 саяын зорилт, 60/20/20 хуваарилалтын график.
 function renderSummary() {
   const r = rowOf(S.month);
   const goalPct = pct(r.income, TARGET);
@@ -641,6 +762,10 @@ function renderSummary() {
     : r.income === TARGET ? '🏆 Биелсэн'
     : r.income ? `${fmt(TARGET - r.income)} дутуу` : 'Орлого бүртгээгүй';
   const open = $('#summary details')?.open ? 'open' : '';
+  const shown = syncAllocTween(allocTargets(r));
+  const totalNow = ACCOUNTS.reduce((s, a) => s + (shown[`n:${a.key}`] || 0), 0);
+  const aria = ACCOUNTS.map((a) => `${a.name} ${fmt(r.alloc[a.key])}`).join(', ');
+  const extra = r.carryIn || r.excess > 0 || SAVING_KEYS.some((k) => r.withdrawn[k]);
 
   $('#summary').innerHTML = `
     <h2>📅 ${monthLabel(S.month, false)}</h2>
@@ -649,15 +774,27 @@ function renderSummary() {
     <div class="bar" role="progressbar" aria-valuenow="${Math.round(goalPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="4 саяын зорилт"><i style="width:${goalPct}%"></i></div>
     <div class="between"><span>${goalText}</span><span>зорилт ${fmt(TARGET)}</span></div>
 
-    <details ${open}>
+    <div class="alloc" id="alloc-chart" role="img" aria-label="Хуваарилалт 60/20/20. ${esc(aria)}">
+      <h3>📐 Хуваарилалт · 60 / 20 / 20</h3>
+      ${ACCOUNTS.map((a) => {
+        const amount = Math.round(shown[`n:${a.key}`] || 0);
+        const width = Math.max(0, shown[`w:${a.key}`] || 0);
+        const share = totalNow > 0 ? Math.round((amount / totalNow) * 100) : a.pct;
+        return `<div class="alloc-row">
+          <div class="alloc-top"><span>${a.emoji} ${a.name} <span class="muted" data-alloc-pct="${a.key}">${share}%</span></span><b class="num" data-alloc-amt="${a.key}">${fmt(amount)}</b></div>
+          <div class="alloc-track"><i data-acc="${a.key}" style="width:${width}%;background:${a.color}"></i></div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    ${extra ? `<details ${open}>
       <summary>Хуваарилалтын дэлгэрэнгүй</summary>
       <ul class="legend">
-        ${ACCOUNTS.map((a) => `<li style="--c:${a.color}"><span class="dot"></span><span>${a.emoji} ${a.name}<span class="pct">${r.income ? Math.round((r.alloc[a.key] / r.income) * 100) : a.pct}%</span></span><b class="num">${fmt(r.alloc[a.key])}</b></li>`).join('')}
         <li><span></span><span>🌱 Өмнөх сараас шилжсэн</span><b class="num ${r.carryIn > 0 ? 'pos' : r.carryIn < 0 ? 'neg' : ''}">${signed(r.carryIn)}</b></li>
         ${SAVING_KEYS.filter((k) => r.withdrawn[k]).map((k) => `<li><span></span><span>💸 ${ACC[k].emoji} ${ACC[k].from} зарлага</span><b class="num">${fmtSigned(r.withdrawn[k], 'expense')}</b></li>`).join('')}
       </ul>
       ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmt(r.std[k] - (TARGET * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
-    </details>`;
+    </details>` : ''}`;
 }
 
 // Дээд самбар: өрхийн дансны одоогийн үлдэгдэл (том) + хуримтлал (хураангуй)
@@ -863,6 +1000,7 @@ function renderBreakdown() {
   const by = EXPENSE_CATEGORIES.map((c) => ({ ...c, sum: rows.filter((r) => r.category === c.key).reduce((s, r) => s + r.amount, 0) }))
     .filter((c) => c.sum > 0).sort((a, b) => b.sum - a.sum);
   const max = Math.max(1, ...by.map((c) => c.sum));
+  const theme = getTheme();
   const byAcc = ACCOUNTS.map((a) => ({ ...a, sum: rows.filter((r) => expenseAccount(r) === a.key).reduce((s, r) => s + r.amount, 0) }))
     .filter((a) => a.sum > 0);
 
@@ -870,10 +1008,10 @@ function renderBreakdown() {
     <div class="card-head"><h2>📊 Ангиллын задаргаа</h2><span class="pill">${monthLabel(S.month, false)}</span></div>
     ${filterBar()}
     ${by.length ? `<div class="cat-rows">${by.map((c) => `
-      <div class="cat-row">
+      <div class="cat-row" style="${categoryStyle(c.key, theme)}">
         <span class="e">${c.emoji}</span>
         <div>
-          <div class="top"><span>${c.name} <span class="muted">${Math.round((c.sum / total) * 100)}%</span></span><span class="num">${fmtSigned(c.sum, 'expense')}</span></div>
+          <div class="top"><span class="name">${c.name} <span class="muted">${Math.round((c.sum / total) * 100)}%</span></span><span class="num">${fmtSigned(c.sum, 'expense')}</span></div>
           <div class="bar"><i style="width:${(c.sum / max) * 100}%"></i></div>
         </div>
       </div>`).join('')}</div>
@@ -888,12 +1026,14 @@ function txRow(kind, r) {
   const a = adminOf(r.created_by);
   const acc = kind === 'expense' ? expenseAccount(r) : 'household';
   const tag = acc === 'household' ? '' : `<span class="acc-tag" style="--c:${ACC[acc].color}">${ACC[acc].emoji} ${ACC[acc].from}</span>`;
+  const tint = kind === 'expense' ? ` style="${categoryStyle(r.category, getTheme())}"` : '';
+  const catName = kind === 'expense' ? `<span class="tx-cat">${esc(c.name)}</span> · ` : '';
   return `
-    <li class="tx">
-      <span class="tx-emoji">${c.emoji}</span>
+    <li class="tx${kind === 'expense' ? ' has-cat' : ''}${r.pending ? ' pending' : ''}"${tint}>
+      <span class="tx-emoji${kind === 'expense' ? ' cat-tint' : ''}">${c.emoji}</span>
       <div class="tx-main">
         <div class="tx-title">${esc(r.note || c.name)}</div>
-        <div class="tx-sub">${tag}${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)} бүртгэсэн</div>
+        <div class="tx-sub">${tag}${catName}${shortDate(r.date)} · ${av(a, 'xs')} ${esc(a.name)} бүртгэсэн</div>
       </div>
       <div class="tx-right">
         <b class="tx-amt num ${kind === 'income' ? 'pos' : ''}">${fmtSigned(r.amount, kind)}</b>
@@ -1968,7 +2108,8 @@ function wireGlobal() {
 
   $$('#theme-seg button').forEach((b) => b.addEventListener('click', () => {
     setTheme(b.dataset.themeSet);
-    renderMore();
+    renderQuickControls();
+    renderAll();
   }));
 
   // Устгах, шүүх, жишээ өгөгдөл — event delegation
@@ -2003,6 +2144,7 @@ function wireGlobal() {
     if (e.target.closest('[data-motion-toggle]')) {
       setMotionEnabled(motionPrefOff());
       renderMotionToggle();
+      renderSummary();
       return;
     }
     const mm = e.target.closest('[data-music-mood]');
@@ -2025,6 +2167,10 @@ function wireGlobal() {
   });
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me) scheduleReload(100); });
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => {
+    renderMotionToggle();
+    renderSummary();
+  });
 
   // Профайл зураг: renderMore дахин зурдаг тул document дээр сонсоно
   document.addEventListener('change', async (e) => {
@@ -2054,9 +2200,43 @@ function armThen(btn, label, action) {
   btn._t = setTimeout(() => { btn.classList.remove('armed'); btn.innerHTML = orig; }, 4000);
 }
 
+async function deleteTx(kind, id, row) {
+  const next = optimisticDelete(txState(), kind, id);
+  applyTx(next);
+  const awaiting = next.pending.find((p) => p.op === 'delete' && p.awaitingAdd && (p.tempId === id || p.tempId === row.tempId));
+  const what = `${fmtSigned(row.amount, kind)} ${kind === 'expense' ? 'зарлага' : 'орлого'}`;
+  if (awaiting) {
+    toast(`🗑️ ${what} устгалаа`);
+    return;
+  }
+  try {
+    await S.store.remove(kind, row, 'delete');
+    applyTx(commitDelete(txState(), id));
+    toast(`🗑️ ${what} устгалаа`, {
+      undo: async () => {
+        try {
+          await S.store.restore(kind, row);
+          S[LIST[kind]].push({ ...row, deleted: false });
+          recompute();
+          renderAll();
+          toast('♻️ Сэргээлээ');
+          scheduleReload();
+        } catch (err) {
+          toast(`⚠️ ${err.message}`, { kind: 'err' });
+        }
+      },
+    });
+    scheduleReload();
+  } catch (err) {
+    applyTx(rollbackDelete(txState(), id));
+    toast(txRollbackMessage('delete', err), { kind: 'err', ms: 6500 });
+  }
+}
+
 async function deleteRow(kind, id) {
   const row = S[LIST[kind]].find((r) => r.id === id);
   if (!row) return;
+  if (kind === 'income' || kind === 'expense') return deleteTx(kind, id, row);
   try {
     await S.store.remove(kind, row, 'delete');
     if (kind === 'achievement' && $('#viewer').open) $('#viewer').close();

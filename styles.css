@@ -115,7 +115,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 h1, h2, h3 { font-family: 'Montserrat', 'Manrope', sans-serif; font-weight: 700; margin: 0; letter-spacing: -.01em; }
 h2 { font-size: 15.5px; }
 h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 18px 0 10px; }
-.num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.num { font-family: 'JetBrains Mono', ui-monospace, monospace; letter-spacing: -.02em; }
+/* Бүх мөнгөн дүн: цифр жигд өргөнтэй, утга солигдоход үсрэхгүй */
+.num, #amount, .cur, .sign, .chip, .cel-amount, .cel-foot, .cel-lines b,
+.coin-label span, .preview, .ov-sub, .between, .h-sub, .tx-sub, .note, .ticker,
+.toast, .save, td, .rule-list, .task-sub, .milestone, .alloc-top b {
+  font-variant-numeric: tabular-nums;
+}
 .muted { color: var(--muted); }
 .pos { color: var(--ok); }
 .neg { color: var(--bad); }
@@ -520,6 +526,16 @@ details[open] summary::after { transform: rotate(180deg); }
 .cat-row .top { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
 .cat-row .top .num { font-weight: 700; }
 .cat-row .bar { height: 10px; }
+.cat-row .name { color: var(--cat-fg, var(--text)); }
+.cat-row .e { border-radius: 10px; background: var(--cat-bg, transparent); }
+.cat-row .bar > i { background: var(--cat, var(--gold-fill)); transition: none; }
+
+/* 60/20/20 — өргөнийг JS интерполяц жолоодно, CSS шилжилт тэгээс дахин эхлүүлэхгүй */
+.alloc { display: grid; gap: 10px; margin-top: 16px; }
+.alloc h3 { margin: 0 0 2px; }
+.alloc-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 13.5px; font-weight: 700; margin-bottom: 4px; }
+.alloc-track { height: 12px; border-radius: 99px; background: var(--track); overflow: hidden; }
+.alloc-track > i { display: block; height: 100%; border-radius: inherit; width: 0; }
 
 /* ---------- Түүх ---------- */
 .table-wrap { overflow-x: auto; margin: 0 -16px; padding: 0 16px; -webkit-overflow-scrolling: touch; }
@@ -946,7 +962,12 @@ canvas.backdrop { position: fixed; inset: 0; width: 100%; height: 100%; z-index:
 .t-emoji { background: none; width: 26px; height: 26px; }
 .t-prog { opacity: .5; height: 2px; }
 .tx-emoji { background: none; }
-.cat { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.tx.has-cat { box-shadow: inset 4px 0 0 var(--cat, transparent); }
+.tx-emoji.cat-tint { background: var(--cat-bg, var(--surface-2)); box-shadow: inset 0 0 0 2.5px var(--cat, transparent); }
+.tx-cat { color: var(--cat-fg, var(--text)); font-weight: 700; }
+.tx.pending { opacity: .62; }
+.cat { background: var(--cat-bg, color-mix(in srgb, var(--surface-2) 60%, transparent)); border-color: transparent; }
+.cat[aria-pressed="true"] { border-color: var(--cat, var(--gold-fill)); }
 .chip { background: none; }
 .seg { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
 .list .tx, .task, .log { border-bottom-color: color-mix(in srgb, var(--border) 60%, transparent); }
