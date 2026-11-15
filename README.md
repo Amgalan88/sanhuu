@@ -61,6 +61,7 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    | `20261031170000_baseline.sql` | `schema.sql` → `income-types.sql` хүртэл: хүснэгт, `is_admin()`, RLS, Realtime publication, хувийн storage bucket `achievements`. `profile.sql` доторх mock мөр устгах `DELETE` багтсан. |
    | `20261031171342_couple_chat.sql` | Чат (`messages`, `chat_reads`) ба Realtime. Version прод дээрх түүхтэй адил (`couple_chat`) — бүү солино. |
    | `20261114123000_security_advisor_fixes.sql` | `is_admin` / `rls_auto_enable` дээрх илүү EXECUTE, `auth.uid()`-ийн RLS initplan, индексгүй foreign key. |
+   | `20261115121500_households.sql` | Олон өрх. Одоогийн `admins`-ийг «Манай өрх» болгож backfill хийнэ (дүн, тэмдэглэл өөрчлөгдөхгүй). Шинэ хэрэглэгч өөрийн өрхтэй. Буцаалт: [supabase/rollback/20261115121500_households.sql](supabase/rollback/20261115121500_households.sql) — `db push` үүнийг ажиллуулахгүй. |
 
    Хуучин файлууд (`schema.sql`, `achievements.sql`, `profile.sql`, `push.sql`, `transfers.sql`,
    `expense-accounts.sql`, `income-types.sql`, `chat.sql`) энэ түүхийн эх сурвалж. Шинэ төсөл дээр
@@ -70,7 +71,9 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    дээр `private`-ийг бүү нэм.
 
 3. **Authentication → Sign In / Providers → Email**:
-   - **Allow new users to sign up**-ийг **унтраана** (гадны хүн бүртгүүлэхгүй).
+   - `households` миграци **хэрэглэгдээгүй** бол **Allow new users to sign up**-ийг **унтраасан** хэвээр үлдээнэ.
+     Миграцийн дараа шинэ хүн бүртгүүлбэл өөрийн хоосон өрхөө үүсгэнэ. Тэднийг `admins`-д **бүү** нэм
+     (нэмбэл буцаалтын `is_admin` бодлого бүх өгөгдлийг нээнэ).
    - Хүсвэл **Confirm email**-ийг унтраана.
    - **Leaked password protection** (HaveIBeenPwned, цоорсон нууц үг) асаана.
      Dashboard → Authentication → Attack Protection, эсвэл Providers → Email.
@@ -127,8 +130,11 @@ npx supabase functions deploy notify --project-ref evtawdwjlwniwjjimkfh
    select id, 'Цэцгээ', '👩' from auth.users where email = 'tsetsgee@example.com';
    ```
 
-Зөвхөн `admins` хүснэгтэд байгаа хэрэглэгч өгөгдөл уншиж/бичнэ. Бүртгэл бүрт
-нэвтэрсэн хүний `user_id` автоматаар хадгалагдаж, “👩 Цэцгээ бүртгэсэн” гэж харагдана.
+`households` миграцийн өмнө зөвхөн `admins` хүснэгтэд байгаа хэрэглэгч өгөгдөл уншиж/бичнэ.
+Миграцийн дараа хандалт `household_members`-ээр: хүн зөвхөн өөрийн өрхийн мөрийг харж, бичнэ.
+Одоогийн хоёр админ «Манай өрх»-ийн owner болж, хуучин мөрүүд тэр өрхөд хадгалагдана.
+Шинэ өрхийг аппын бүртгэл + «Өрх үүсгэх» дэлгэц үүсгэнэ. Нөхөр/эхнэр нь нэг удаагийн
+7 хоногийн кодоор нэгдэнэ (⚙️ Бусад → Урилга). Кодыг `admins`-д гараар нэмж бүтээхгүй.
 
 ## 3. Байршуулах
 
@@ -204,7 +210,8 @@ js/confetti.js          конфетти 🎉
 js/celebrate.js         баярын цонх, эможи бороо
 js/image.js             зураг жижгэрүүлэх (upload-аас өмнө)
 supabase/config.toml   Supabase CLI (db push). major_version = 17
-supabase/migrations/    хоосон төсөлд хэрэглэх түүх (baseline, couple_chat, security)
+supabase/migrations/    хоосон төсөлд хэрэглэх түүх (baseline, couple_chat, security, households)
+supabase/rollback/      households миграцийн гар буцаалт (db push-д орохгүй)
 supabase/schema.sql     түүхэн скрипт — baseline-д багтсан
 supabase/achievements.sql  түүхэн скрипт — амжилт + зургийн сан
 supabase/profile.sql    түүхэн скрипт — профайл зураг
