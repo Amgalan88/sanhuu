@@ -26,6 +26,11 @@ import {
 import { customLink, setCustomLink, parseYouTube } from './youtube.js';
 import { cleanBody, unreadCount, readCursor, clockTime, dayHeading } from './chat.js';
 import { authGate, householdNameError, personNameError, inviteCodeError } from './household.js';
+import {
+  clearChallenge, detectSmsDevice, formatCountdown, loadChallenge, normalizeMnPhone, passwordError,
+  renderAuthTabs, renderPhoneLogin, renderPhonePassword, renderPhoneStart, renderPhoneVerify,
+  saveChallenge, shouldPoll,
+} from './phone-auth.js';
 
 // ============================================================
 // Туслах
@@ -101,6 +106,11 @@ const av = (a, cls = '') => (a.avatar_url
   : `<span class="av av-e ${cls}" aria-hidden="true">${a.emoji}</span>`);
 const rowOf = (m) => S.ledger.find((r) => r.month === m) || emptyMonth(m);
 const currentMonth = () => monthKey(todayISO());
+let phoneTimers = [];
+function clearPhoneTimers() {
+  for (const t of phoneTimers) clearInterval(t);
+  phoneTimers = [];
+}
 
 // ============================================================
 // Эхлэл
@@ -118,6 +128,12 @@ async function boot() {
     S.store = previewStore();
     return showHousehold();
   }
+  if (isLocalPreview('phone-signup') || isLocalPreview('phone-verify')) {
+    S.store = previewPhoneStore();
+    document.documentElement.dataset.smsDevice = localSmsDevice();
+    if (isLocalPreview('phone-verify')) return showPhoneVerifyPreview();
+    return showPhoneFlow('signup');
+  }
   S.store = SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStore();
   if (S.store.mode === 'supabase') S.store.onRecovery = () => showLogin('', 'recovery');
   try {
@@ -128,10 +144,56 @@ async function boot() {
   openGate();
 }
 
-function isLocalPreview(screen) {
+function isLocalHost() {
   const host = location.hostname;
-  if (host !== 'localhost' && host !== '127.0.0.1') return false;
+  return host === 'localhost' || host === '127.0.0.1';
+}
+
+function isLocalPreview(screen) {
+  if (!isLocalHost()) return false;
   return new URLSearchParams(location.search).get('screen') === screen;
+}
+
+function localSmsDevice() {
+  if (isLocalHost()) {
+    const device = new URLSearchParams(location.search).get('device');
+    if (device === 'mobile' || device === 'desktop') return device;
+  }
+  return detectSmsDevice(navigator.userAgent);
+}
+
+function previewPhoneStore() {
+  const expiresAt = new Date(Date.now() + 4 * 60 * 1000 + 30 * 1000).toISOString();
+  return {
+    mode: 'preview',
+    needsHousehold: true,
+    async signOut() {},
+    async phoneAuth(body) {
+      if (body.action === 'start') {
+        return {
+          challenge: {
+            challengeId: '00000000-0000-4000-8000-000000000001',
+            purpose: body.purpose,
+            phone: '99112233',
+            shortcode: '144773',
+            text: '482916',
+            smsUri: 'sms:144773?body=482916',
+            displayInstruction: 'Та өөрийн 99112233 дугаараас 144773 дугаарт "482916" гэж SMS илгээнэ үү. 2 SIM-тэй бол зөв SIM-ээ сонгоно уу.',
+            expiresAt,
+            priceTugrik: 150,
+          },
+        };
+      }
+      if (body.action === 'status') return { status: 'pending', expiresAt };
+      return { ok: true, phone: '+97699112233', purpose: body.purpose || 'signup' };
+    },
+    async signIn() {
+      this.needsHousehold = true;
+      return null;
+    },
+    async createHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
+    async joinHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
+  };
 }
 
 function previewStore() {
@@ -159,6 +221,7 @@ function openGate() {
 const devOnly = (html) => (S.store?.mode === 'demo' ? html : '');
 
 function showLogin(error = '', mode = '') {
+  clearPhoneTimers();
   pauseMusic();
   delete document.body.dataset.view;
   $('#boot')?.remove();
@@ -220,7 +283,62 @@ function showLogin(error = '', mode = '') {
     return;
   }
 
-  body.innerHTML = `
+  if (mode === 'email') return mountEmailLogin();
+  return mountPhoneLogin();
+}
+
+function authChrome(sub) {
+  pauseMusic();
+  clearPhoneTimers();
+  delete document.body.dataset.view;
+  $('#boot')?.remove();
+  $('#app').hidden = true;
+  $('#login').hidden = false;
+  $('#login-error').textContent = '';
+  const el = $('#login-sub');
+  if (el && sub) el.textContent = sub;
+  document.documentElement.dataset.smsDevice = localSmsDevice();
+}
+
+function bindAuthTabs() {
+  $('#tab-phone')?.addEventListener('click', () => {
+    authChrome('Гэр бүлийн нийтийн данс');
+    mountPhoneLogin();
+  });
+  $('#tab-email')?.addEventListener('click', () => {
+    authChrome('Гэр бүлийн нийтийн данс');
+    mountEmailLogin();
+  });
+}
+
+function mountPhoneLogin() {
+  $('#login-body').innerHTML = renderPhoneLogin();
+  bindAuthTabs();
+  $('#forgot').addEventListener('click', () => showPhoneFlow('reset'));
+  $('#show-signup').addEventListener('click', () => showPhoneFlow('signup'));
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const phone = $('#phone').value;
+    const parsed = normalizeMnPhone(phone);
+    $('#login-error').textContent = parsed.ok ? '' : parsed.error;
+    if (!parsed.ok) return;
+    const btn = e.submitter || $('#login-form button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = 'Түр хүлээнэ үү…';
+    try {
+      S.me = await S.store.signIn({ phone, password: $('#password').value });
+      openGate();
+    } catch (err) {
+      $('#login-error').textContent = err.message;
+      btn.disabled = false;
+      btn.textContent = 'Нэвтрэх';
+    }
+  });
+}
+
+function mountEmailLogin() {
+  $('#login-body').innerHTML = `
+    ${renderAuthTabs('email')}
     <form id="login-form" novalidate>
       <label for="email">Имэйл</label>
       <input class="field" id="email" type="email" autocomplete="username" inputmode="email" required>
@@ -228,7 +346,8 @@ function showLogin(error = '', mode = '') {
       <input class="field" id="password" type="password" autocomplete="current-password" required>
       <button type="button" class="linkish" id="forgot">Нууц үг мартсан</button>
       <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Нэвтрэх</button>
-      <button type="button" class="linkish" id="show-signup">Шинээр бүртгүүлэх</button>
+      <button type="button" class="linkish" id="show-signup">Утасаар бүртгүүлэх</button>
+      <button type="button" class="linkish" id="show-email-signup">Имэйлээр бүртгүүлэх</button>
     </form>
     <form id="reset-form" hidden novalidate>
       <p class="note" style="margin-top:0">Имэйл хаягаа оруулна уу. Нууц үг сэргээх холбоос очно.</p>
@@ -238,6 +357,7 @@ function showLogin(error = '', mode = '') {
       <button type="button" class="linkish" id="reset-back">Нэвтрэх рүү буцах</button>
       <p id="reset-note" class="login-note"></p>
     </form>`;
+  bindAuthTabs();
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = e.submitter || $('#login-form button[type="submit"]');
@@ -290,7 +410,153 @@ function showLogin(error = '', mode = '') {
       btn.textContent = 'Холбоос илгээх';
     }
   });
-  $('#show-signup').addEventListener('click', () => showSignup());
+  $('#show-signup').addEventListener('click', () => showPhoneFlow('signup'));
+  $('#show-email-signup').addEventListener('click', () => showSignup());
+}
+
+function showPhoneVerifyPreview() {
+  authChrome('Утас баталгаажуулах');
+  const challenge = {
+    challengeId: '00000000-0000-4000-8000-000000000001',
+    purpose: 'signup',
+    phone: '99112233',
+    shortcode: '144773',
+    text: '482916',
+    smsUri: 'sms:144773?body=482916',
+    displayInstruction: 'Та өөрийн 99112233 дугаараас 144773 дугаарт "482916" гэж SMS илгээнэ үү. 2 SIM-тэй бол зөв SIM-ээ сонгоно уу.',
+    expiresAt: new Date(Date.now() + 4 * 60 * 1000 + 30 * 1000).toISOString(),
+  };
+  mountPhoneVerify(challenge, 'signup');
+}
+
+function phoneChallengeStore() {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function showPhoneFlow(purpose) {
+  authChrome(purpose === 'reset' ? 'Нууц үг сэргээх' : 'Шинэ бүртгэл');
+  const store = phoneChallengeStore();
+  const saved = S.store.mode === 'preview' || !store ? null : loadChallenge(store, purpose);
+  if (saved) {
+    mountPhoneVerify(saved, purpose);
+    return;
+  }
+  mountPhoneStart(purpose);
+}
+
+function mountPhoneStart(purpose) {
+  $('#login-body').innerHTML = renderPhoneStart({ purpose });
+  $('#phone-back').addEventListener('click', () => showLogin());
+  $('#phone-start').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const parsed = normalizeMnPhone($('#phone').value);
+    $('#login-error').textContent = parsed.ok ? '' : parsed.error;
+    if (!parsed.ok) return;
+    const btn = e.submitter;
+    btn.disabled = true;
+    btn.textContent = 'Түр хүлээнэ үү…';
+    try {
+      const data = await S.store.phoneAuth({ action: 'start', phone: parsed.national, purpose });
+      const store = phoneChallengeStore();
+      if (store) saveChallenge(store, data.challenge);
+      mountPhoneVerify(data.challenge, purpose);
+    } catch (err) {
+      $('#login-error').textContent = err.message;
+      btn.disabled = false;
+      btn.textContent = purpose === 'reset' ? 'Код авах' : 'Үргэлжлүүлэх';
+    }
+  });
+}
+
+function mountPhoneVerify(challenge, purpose) {
+  authChrome(purpose === 'reset' ? 'Нууц үг сэргээх' : 'Утас баталгаажуулах');
+  let current = challenge;
+  let status = 'pending';
+  let lastPollAt = null;
+  const paint = () => {
+    $('#login-body').innerHTML = renderPhoneVerify(current, { device: localSmsDevice(), now: Date.now() });
+    $('#phone-back').addEventListener('click', () => {
+      clearPhoneTimers();
+      const store = phoneChallengeStore();
+      if (store) clearChallenge(store);
+      showLogin();
+    });
+    $('#sms-retry').addEventListener('click', () => {
+      clearPhoneTimers();
+      const store = phoneChallengeStore();
+      if (store) clearChallenge(store);
+      mountPhoneStart(purpose);
+    });
+  };
+  paint();
+  const tick = () => {
+    const count = $('#sms-count');
+    if (!count) return;
+    const left = new Date(current.expiresAt).getTime() - Date.now();
+    count.textContent = formatCountdown(left);
+    if (left <= 0 && status === 'pending') {
+      status = 'expired';
+      const wait = $('#sms-wait');
+      if (wait) wait.textContent = 'Хугацаа дууссан. Хуучин код хүчингүй. Шинэ код авна уу.';
+    }
+  };
+  phoneTimers.push(setInterval(tick, 1000));
+  const poll = async () => {
+    const now = Date.now();
+    if (!shouldPoll({ status, lastPollAt, now })) return;
+    lastPollAt = now;
+    try {
+      const data = await S.store.phoneAuth({ action: 'status', challengeId: current.challengeId });
+      status = data.status;
+      if (data.challenge) {
+        current = data.challenge;
+        const store = phoneChallengeStore();
+        if (store) saveChallenge(store, current);
+      }
+      if (status === 'verified') {
+        clearPhoneTimers();
+        const store = phoneChallengeStore();
+        if (store) clearChallenge(store);
+        mountPhonePassword(purpose, current.challengeId);
+        return;
+      }
+      if (status === 'expired' || status === 'rejected' || status === 'consumed') {
+        $('#sms-wait').textContent = data.error || 'Дахин код авна уу.';
+      }
+    } catch (err) {
+      $('#login-error').textContent = err.message;
+    }
+  };
+  poll();
+  phoneTimers.push(setInterval(poll, 1000));
+}
+
+function mountPhonePassword(purpose, challengeId) {
+  authChrome(purpose === 'reset' ? 'Шинэ нууц үг' : 'Нууц үг үүсгэх');
+  $('#login-body').innerHTML = renderPhonePassword({ purpose });
+  $('#phone-password').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const password = $('#new-password').value;
+    const again = $('#new-password2').value;
+    $('#login-error').textContent = passwordError(password) || (password !== again ? 'Нууц үг таарахгүй байна.' : '');
+    if ($('#login-error').textContent) return;
+    const btn = e.submitter;
+    btn.disabled = true;
+    btn.textContent = 'Түр хүлээнэ үү…';
+    try {
+      const done = await S.store.phoneAuth({ action: 'complete', challengeId, password });
+      S.me = await S.store.signIn({ phone: done.phone, password });
+      openGate();
+    } catch (err) {
+      $('#login-error').textContent = err.message;
+      btn.disabled = false;
+      btn.textContent = purpose === 'reset' ? 'Нууц үг шинэчлэх' : 'Бүртгүүлэх';
+    }
+  });
 }
 
 function showSignup() {
@@ -303,7 +569,7 @@ function showSignup() {
   if (sub) sub.textContent = 'Шинэ бүртгэл';
   $('#login-body').innerHTML = `
     <form id="signup-form" novalidate>
-      <p class="note" style="margin-top:0">Бүртгэл зөвхөн таны өрхөд харагдана. Имэйл баталгаажуулалт ассан бол шуудангаа шалгана уу.</p>
+      <p class="note" style="margin-top:0">Имэйл бүртгэл хаалттай байж болно. Утасны дугаараар бүртгүүлбэл шуудан шаардлагагүй.</p>
       <label for="signup-email">Имэйл</label>
       <input class="field" id="signup-email" type="email" autocomplete="username" inputmode="email" required>
       <label for="signup-password">Нууц үг</label>
@@ -311,8 +577,10 @@ function showSignup() {
       <label for="signup-password2">Нууц үг давтах</label>
       <input class="field" id="signup-password2" type="password" autocomplete="new-password" minlength="6" required>
       <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Бүртгүүлэх</button>
+      <button type="button" class="linkish" id="signup-phone">Утасаар бүртгүүлэх</button>
       <button type="button" class="linkish" id="signup-back">Нэвтрэх рүү буцах</button>
     </form>`;
+  $('#signup-phone').addEventListener('click', () => showPhoneFlow('signup'));
   $('#signup-back').addEventListener('click', () => showLogin());
   $('#signup-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -343,6 +611,7 @@ function showSignup() {
 }
 
 function showHousehold() {
+  clearPhoneTimers();
   pauseMusic();
   delete document.body.dataset.view;
   $('#boot')?.remove();

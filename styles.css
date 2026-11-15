@@ -173,6 +173,37 @@ h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 18px 0 10px
   color: var(--gold); font-weight: 700; font-size: 14px; text-decoration: underline; text-underline-offset: 3px;
 }
 .login form[hidden] { display: none; }
+.price-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--gold-soft);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.price-note b, .sms-count { font-variant-numeric: tabular-nums; }
+.sms-instruction { margin: 12px 0 0; font-size: 15px; line-height: 1.45; }
+.sms-code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-align: center;
+  margin: 10px 0 0;
+}
+.sms-send { text-decoration: none; min-height: 54px; margin-top: 8px; }
+.sms-desktop {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sms-desktop p { margin: 0; }
+.auth-wait { text-align: center; color: var(--muted); font-size: 14px; margin: 8px 0 0; }
+.auth-tabs { margin-bottom: 14px; }
 .login-or {
   display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center;
   color: var(--muted); font-size: 13px; margin: 16px 0 12px;

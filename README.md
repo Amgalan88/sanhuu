@@ -62,6 +62,7 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    | `20261031171342_couple_chat.sql` | Чат (`messages`, `chat_reads`) ба Realtime. Version прод дээрх түүхтэй адил (`couple_chat`) — бүү солино. |
    | `20261114123000_security_advisor_fixes.sql` | `is_admin` / `rls_auto_enable` дээрх илүү EXECUTE, `auth.uid()`-ийн RLS initplan, индексгүй foreign key. |
    | `20261115121500_households.sql` | Олон өрх. Одоогийн `admins`-ийг «Манай өрх» болгож backfill хийнэ (дүн, тэмдэглэл өөрчлөгдөхгүй). Шинэ хэрэглэгч өөрийн өрхтэй. Буцаалт: [supabase/rollback/20261115121500_households.sql](supabase/rollback/20261115121500_households.sql) — `db push` үүнийг ажиллуулахгүй. |
+   | `20261115190000_phone_auth.sql` | Verify.MN-ийн түр session, `private.phone_auth_challenges`. Клиент хандахгүй. Буцаалт: [supabase/rollback/20261115190000_phone_auth.sql](supabase/rollback/20261115190000_phone_auth.sql) — `auth.users`-ийг устгахгүй. |
 
    Хуучин файлууд (`schema.sql`, `achievements.sql`, `profile.sql`, `push.sql`, `transfers.sql`,
    `expense-accounts.sql`, `income-types.sql`, `chat.sql`) энэ түүхийн эх сурвалж. Шинэ төсөл дээр
@@ -71,14 +72,20 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    дээр `private`-ийг бүү нэм.
 
 3. **Authentication → Sign In / Providers → Email**:
-   - `households` миграци **хэрэглэгдээгүй** бол **Allow new users to sign up**-ийг **унтраасан** хэвээр үлдээнэ.
-     Миграцийн дараа шинэ хүн бүртгүүлбэл өөрийн хоосон өрхөө үүсгэнэ. Тэднийг `admins`-д **бүү** нэм
-     (нэмбэл буцаалтын `is_admin` бодлого бүх өгөгдлийг нээнэ).
+   - **Allow new users to sign up**-ийг **унтраасан** хэвээр үлдээнэ (`disable_signup`).
+     Одоогийн имэйл + нууц үгийн нэвтрэлт ажиллана. Шинэ хүн утасны дугаараар бүртгүүлнэ
+     (доорх Verify.MN). Имэйл бүртгэлийг асаавал анхдагч SMTP нийтийн хэрэглэгчид хүрдэггүй.
    - Хүсвэл **Confirm email**-ийг унтраана.
    - **Leaked password protection** (HaveIBeenPwned, цоорсон нууц үг) асаана.
      Dashboard → Authentication → Attack Protection, эсвэл Providers → Email.
      Энэ тохиргоо SQL миграцид багтахгүй — гараар.
-4. **Project Settings → API**-аас `Project URL` ба `anon public` түлхүүрийг
+4. **Authentication → Providers → Phone** (утас + нууц үг, SMS илгээхгүй):
+   - Phone provider-ийг **асаана**. Twilio, MessageBird, Vonage, Textlocal **бүү** холбо.
+     `signInWithPassword({ phone, password })` provider шаардана. OTP-г Supabase илгээхгүй —
+     баталгаажуулалт нь Verify.MN (хэрэглэгч 144773 руу SMS илгээнэ, 150₮).
+   - **Confirm phone**-ийг унтраана. Функц `phone_confirm: true`-аар хэрэглэгч үүсгэнэ.
+   - **Allow new users to sign up** хэвээр унтраалттай. Service role public signup-ийг тойрно.
+5. **Project Settings → API**-аас `Project URL` ба `anon public` түлхүүрийг
    [js/config.js](js/config.js)-д бичнэ:
 
    ```js
@@ -87,6 +94,24 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    ```
 
    anon key нийтэд ил байж болно — өгөгдлийг RLS хамгаална.
+
+### Утасны бүртгэл (Verify.MN)
+
+Шинэ хүн: утас → өөрөө 144773 руу SMS (150₮, үнэ товчноос өмнө харагдана) → нууц үг → өрх үүсгэх/нэгдэх.
+Нэвтрэлт: утас + нууц үг. Нууц үг мартвал дахин SMS. Хуучин имэйл + нууц үг хэвээр.
+
+Миграци прод дээр хараахан хэрэглээгүй. `db push` дарааллаараа авна (функцийг `db push` байршуулахгүй).
+Нууц `VERIFY_MN_API_KEY` зөвхөн Edge Function дээр. Функц session token буцаахгүй — клиент
+`signInWithPassword({ phone, password })` дуудна. Callback (`GET .../phone-auth/callback`)
+JWT-гүй, зөвхөн Verify.MN-ийн төлөвийг дахин шалгана.
+
+```bash
+npx supabase secrets set VERIFY_MN_API_KEY=vrf_... --project-ref evtawdwjlwniwjjimkfh
+npx supabase functions deploy phone-auth --no-verify-jwt --project-ref evtawdwjlwniwjjimkfh
+```
+
+`db push` функцийг байршуулахгүй. Verify.MN дансанд API key авч, callback-д зориулж
+функцийн нийтийн https хаяг хангалттай (туннель, IP allowlist шаардлагагүй).
 
 ### Прод дээрх түүх (дахин бүү ажиллуул)
 
