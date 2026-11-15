@@ -14,6 +14,9 @@
 import { describe, sourceOf, allocLabel } from './finance.js';
 import { cleanBody } from './chat.js';
 import { blobToDataURL } from './image.js';
+import {
+  householdNameError, personNameError, inviteCodeError, normalizeInviteCode, rpcMessage,
+} from './household.js';
 
 const TABLE = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
 const BUCKET = 'achievements'; // амжилтын зураг: <user_id>/<id>.jpg, профайл: avatars/<user_id>-<ts>.jpg
@@ -39,8 +42,12 @@ export function uuid() {
 // ============================================================
 export class SupabaseStore {
   mode = 'supabase';
-  admins = [];
+  admins = []; // одоогийн өрхийн гишүүд (хуучин UI энэ нэрээр уншина)
   me = null;
+  household = null;
+  householdId = null;
+  needsHousehold = false;
+  pendingConfirmation = false;
 
   constructor(url, key) {
     this.url = url;
@@ -97,6 +104,21 @@ export class SupabaseStore {
       : error.message);
   }
 
+  async signUp({ email, password }) {
+    const { data, error } = await this.sb.auth.signUp({ email, password });
+    if (error) {
+      const known = {
+        'User already registered': 'Энэ имэйл аль хэдийн бүртгэлтэй байна',
+        'Password should be at least 6 characters': 'Нууц үг хамгийн багадаа 6 тэмдэгт байна',
+        'Signup requires a valid password': 'Нууц үг хамгийн багадаа 6 тэмдэгт байна',
+      };
+      throw new Error(known[error.message] || error.message);
+    }
+    this.pendingConfirmation = !data.session;
+    if (!data.session) return null;
+    return this.#loadMe(data.user.id);
+  }
+
   async signOut() {
     if (this.channel) this.sb.removeChannel(this.channel);
     if (this.transferChannel) this.sb.removeChannel(this.transferChannel);
@@ -105,24 +127,98 @@ export class SupabaseStore {
     this.channel = this.transferChannel = this.typesChannel = this.chatChannel = null;
     await this.sb.auth.signOut();
     this.me = null;
+    this.admins = [];
+    this.household = null;
+    this.householdId = null;
+    this.needsHousehold = false;
+    this.pendingConfirmation = false;
+  }
+
+  async createHousehold({ name, displayName, emoji = '🙂' }) {
+    const nameErr = householdNameError(name);
+    if (nameErr) throw new Error(nameErr);
+    const personErr = personNameError(displayName);
+    if (personErr) throw new Error(personErr);
+    const { error } = await this.sb.rpc('create_household', {
+      p_name: name.trim(),
+      p_display_name: displayName.trim(),
+      p_emoji: emoji || '🙂',
+    });
+    if (error) throw new Error(rpcMessage(error));
+    return this.#loadMe(this.userId);
+  }
+
+  async joinHousehold({ code, displayName, emoji = '🙂' }) {
+    const codeErr = inviteCodeError(code);
+    if (codeErr) throw new Error(codeErr);
+    const personErr = personNameError(displayName);
+    if (personErr) throw new Error(personErr);
+    const { error } = await this.sb.rpc('join_household', {
+      p_code: normalizeInviteCode(code),
+      p_display_name: displayName.trim(),
+      p_emoji: emoji || '🙂',
+    });
+    if (error) throw new Error(rpcMessage(error));
+    return this.#loadMe(this.userId);
+  }
+
+  async createInvite() {
+    this.#requireHousehold();
+    const { data, error } = await this.sb.rpc('create_household_invite');
+    if (error) throw new Error(rpcMessage(error));
+    return data;
   }
 
   async #loadMe(userId) {
     this.userId = userId;
-    await this.#loadAdmins();
-    if (!this.me) {
-      await this.sb.auth.signOut();
-      throw new Error('Энэ хэрэглэгч админ биш байна. admins хүснэгтэд нэмнэ үү.');
+    this.pendingConfirmation = false;
+    const member = await this.#loadMembership();
+    if (!member) {
+      this.me = null;
+      this.admins = [];
+      this.household = null;
+      this.householdId = null;
+      this.needsHousehold = true;
+      return null;
     }
+    this.needsHousehold = false;
+    return this.me;
+  }
+
+  #requireHousehold() {
+    if (!this.householdId) throw new Error('Өрх сонгогдоогүй байна');
+  }
+
+  // Гишүүнчлэл байхгүй бол null (нэвтэрсэн хэвээр, onboarding). Админ биш гэж гаргахгүй.
+  async #loadMembership() {
+    const { data: mine, error } = await this.sb.from('household_members')
+      .select('household_id, user_id, role, name, emoji, avatar_path, created_at')
+      .eq('user_id', this.userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!mine) return null;
+
+    this.householdId = mine.household_id;
+    const { data: members, error: membersError } = await this.sb.from('household_members')
+      .select('household_id, user_id, role, name, emoji, avatar_path, created_at')
+      .eq('household_id', this.householdId)
+      .order('created_at');
+    if (membersError) throw membersError;
+    await this.#sign(members, 'avatar_path', 'avatar_url');
+    this.admins = members;
+    this.me = members.find((a) => a.user_id === this.userId) || null;
+
+    const { data: household, error: householdError } = await this.sb.from('households')
+      .select('id, name')
+      .eq('id', this.householdId)
+      .maybeSingle();
+    if (householdError) throw householdError;
+    this.household = household;
     return this.me;
   }
 
   async #loadAdmins() {
-    const { data, error } = await this.sb.from('admins').select('*').order('created_at');
-    if (error) throw error;
-    await this.#sign(data, 'avatar_path', 'avatar_url');
-    this.admins = data;
-    this.me = data.find((a) => a.user_id === this.userId) || null;
+    await this.#loadMembership();
   }
 
   // Хувийн bucket-ийн зургуудад түр (24 цаг) холбоос үүсгэнэ
@@ -135,9 +231,11 @@ export class SupabaseStore {
   }
 
   async #fetchAll(table) {
+    this.#requireHousehold();
     const out = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await this.sb.from(table).select('*').eq('deleted', false).eq('mock', false)
+      const { data, error } = await this.sb.from(table).select('*')
+        .eq('household_id', this.householdId).eq('deleted', false).eq('mock', false)
         .order('date').order('created_at').range(from, from + 999);
       if (error) throw error;
       out.push(...data);
@@ -146,17 +244,19 @@ export class SupabaseStore {
   }
 
   async loadAll() {
+    this.#requireHousehold();
     const [incomes, expenses, audit, achievements, transfers, incomeTypes, messages, chatRead] = await Promise.all([
       this.#fetchAll('incomes'),
       this.#fetchAll('expenses'),
-      this.sb.from('audit_log').select('*').eq('mock', false).order('at', { ascending: false }).limit(300)
+      this.sb.from('audit_log').select('*').eq('household_id', this.householdId).eq('mock', false)
+        .order('at', { ascending: false }).limit(300)
         .then(({ data, error }) => { if (error) throw error; return data; }),
       this.#fetchAchievements(),
       this.#fetchTransfers(),
       this.#fetchIncomeTypes(),
       this.#fetchMessages(),
       this.#fetchChatRead(),
-      this.#loadAdmins(), // профайл зураг шинэчлэгдсэн байж болно
+      this.#loadAdmins(), // профайл зураг, гишүүд шинэчлэгдсэн байж болно
     ]);
     return {
       incomes, expenses, audit, achievements, transfers, incomeTypes, messages, chatRead,
@@ -170,6 +270,7 @@ export class SupabaseStore {
     const out = [];
     for (let from = 0; ; from += 1000) {
       const { data, error } = await this.sb.from('messages').select('id, body, created_by, created_at')
+        .eq('household_id', this.householdId)
         .order('created_at').range(from, from + 999);
       if (error) {
         this.messagesMissing = missingTable(error);
@@ -184,7 +285,8 @@ export class SupabaseStore {
   }
 
   async #fetchChatRead() {
-    const { data, error } = await this.sb.from('chat_reads').select('last_read_at').eq('user_id', this.userId).maybeSingle();
+    const { data, error } = await this.sb.from('chat_reads').select('last_read_at')
+      .eq('household_id', this.householdId).eq('user_id', this.userId).maybeSingle();
     if (error) {
       if (!missingTable(error)) console.warn('chat_reads', error);
       return null;
@@ -194,9 +296,10 @@ export class SupabaseStore {
 
   async sendMessage(body) {
     if (this.messagesMissing) throw new Error('Эхлээд Supabase дээр supabase/chat.sql-ийг ажиллуулна уу');
+    this.#requireHousehold();
     const text = cleanBody(body);
     if (!text) throw new Error('Мессеж хоосон байна');
-    const row = { id: uuid(), body: text, created_by: this.me.user_id };
+    const row = { id: uuid(), body: text, created_by: this.me.user_id, household_id: this.householdId };
     const { data, error } = await this.sb.from('messages').insert(row).select('id, body, created_by, created_at').single();
     if (error) throw error;
     // Нөгөө хүнд push (функц байрлуулаагүй бол чимээгүй алгасна). Санхүүгийн бүртгэлд оруулахгүй.
@@ -208,8 +311,9 @@ export class SupabaseStore {
 
   async markChatRead(at) {
     if (this.messagesMissing) return;
+    this.#requireHousehold();
     const { error } = await this.sb.from('chat_reads').upsert(
-      { user_id: this.me.user_id, last_read_at: at },
+      { user_id: this.me.user_id, last_read_at: at, household_id: this.householdId },
       { onConflict: 'user_id' },
     );
     if (error && !missingTable(error)) console.warn('chat_reads', error);
@@ -217,7 +321,7 @@ export class SupabaseStore {
 
   // income_types хүснэгт үүсээгүй бол анхны нэр, стандарт дүрмээр ажиллана
   async #fetchIncomeTypes() {
-    const { data, error } = await this.sb.from('income_types').select('*');
+    const { data, error } = await this.sb.from('income_types').select('*').eq('household_id', this.householdId);
     this.incomeTypesMissing = missingTable(error);
     if (error) {
       if (!this.incomeTypesMissing) console.warn('income_types', error);
@@ -229,8 +333,9 @@ export class SupabaseStore {
   async saveIncomeType(t) {
     if (this.incomeTypesMissing) throw new Error('Эхлээд Supabase дээр supabase/income-types.sql-ийг ажиллуулна уу');
     const text = typeText(t);
-    const row = { ...t, updated_by: this.me.user_id, updated_at: nowISO() };
-    const { data, error } = await this.sb.from('income_types').upsert(row, { onConflict: 'key' }).select().single();
+    this.#requireHousehold();
+    const row = { ...t, household_id: this.householdId, updated_by: this.me.user_id, updated_at: nowISO() };
+    const { data, error } = await this.sb.from('income_types').upsert(row, { onConflict: 'household_id,key' }).select().single();
     if (error) throw error;
     await this.#audit('edit', text);
     return data;
@@ -240,7 +345,8 @@ export class SupabaseStore {
   async #fetchTransfers() {
     const out = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await this.sb.from('transfers').select('*').eq('deleted', false)
+      const { data, error } = await this.sb.from('transfers').select('*')
+        .eq('household_id', this.householdId).eq('deleted', false)
         .order('created_at').range(from, from + 999);
       if (error) {
         this.transfersMissing = missingTable(error);
@@ -256,7 +362,11 @@ export class SupabaseStore {
 
   async markDone(income, items) {
     if (this.transfersMissing) throw new Error('Эхлээд Supabase дээр supabase/transfers.sql-ийг ажиллуулна уу');
-    const rows = items.map((t) => ({ id: uuid(), income_id: income.id, account: t.account, amount: t.amount, created_by: this.me.user_id }));
+    this.#requireHousehold();
+    const rows = items.map((t) => ({
+      id: uuid(), income_id: income.id, account: t.account, amount: t.amount,
+      created_by: this.me.user_id, household_id: this.householdId,
+    }));
     const { data, error } = await this.sb.from('transfers').insert(rows).select();
     if (error) {
       // Нөгөө хүн түрүүлж дарсан
@@ -268,15 +378,19 @@ export class SupabaseStore {
   }
 
   async undoDone(income, rows) {
+    this.#requireHousehold();
     const { error } = await this.sb.from('transfers')
-      .update({ deleted: true, deleted_by: this.me.user_id, deleted_at: nowISO() }).in('id', rows.map((r) => r.id));
+      .update({ deleted: true, deleted_by: this.me.user_id, deleted_at: nowISO() })
+      .eq('household_id', this.householdId)
+      .in('id', rows.map((r) => r.id));
     if (error) throw error;
     await this.#audit('undo', describe('transfer', { income, items: rows }), income.id);
   }
 
   // achievements хүснэгт үүсээгүй бол апп эвдрэхгүй
   async #fetchAchievements() {
-    const { data, error } = await this.sb.from('achievements').select('*').eq('deleted', false)
+    const { data, error } = await this.sb.from('achievements').select('*')
+      .eq('household_id', this.householdId).eq('deleted', false)
       .order('date', { ascending: false }).order('created_at', { ascending: false });
     if (error) {
       this.achievementsMissing = missingTable(error);
@@ -299,8 +413,9 @@ export class SupabaseStore {
     const id = uuid();
     const image_path = images ? `${this.me.user_id}/${id}.jpg` : null;
     if (images) await Promise.all([this.#upload(image_path, images.full), this.#upload(thumbOf(image_path), images.thumb)]);
+    this.#requireHousehold();
     const { data, error } = await this.sb.from('achievements')
-      .insert({ id, ...fields, image_path, created_by: this.me.user_id }).select().single();
+      .insert({ id, ...fields, image_path, created_by: this.me.user_id, household_id: this.householdId }).select().single();
     if (error) throw error;
     await this.#audit('add', describe('achievement', data), data.id);
     return {
@@ -316,17 +431,24 @@ export class SupabaseStore {
       avatar_path = `avatars/${this.me.user_id}-${Date.now()}.jpg`;
       await this.#upload(avatar_path, blob);
     }
-    const { error } = await this.sb.from('admins').update({ avatar_path }).eq('user_id', this.me.user_id);
+    this.#requireHousehold();
+    const { error } = await this.sb.from('household_members').update({ avatar_path })
+      .eq('household_id', this.householdId).eq('user_id', this.me.user_id);
     if (error) {
       throw new Error(error.code === '42703' || error.code === 'PGRST204'
-        ? 'Эхлээд Supabase дээр supabase/profile.sql-ийг ажиллуулна уу' : error.message);
+        ? 'Эхлээд өрхийн миграцийг ажиллуулна уу' : error.message);
     }
+    // Хуучин гэр бүлийн admins.avatar_path-ийг хамт шинэчилнэ. Шинэ өрхөд мөр байхгүй — алгасна.
+    const legacy = await this.sb.from('admins').update({ avatar_path }).eq('user_id', this.me.user_id);
+    if (legacy.error) console.warn('admins avatar', legacy.error);
     this.me.avatar_path = avatar_path;
     this.me.avatar_url = blob ? URL.createObjectURL(blob) : null;
   }
 
   async #audit(action, text, ref_id = null) {
-    const { error } = await this.sb.from('audit_log').insert({ id: uuid(), user_id: this.me.user_id, action, text, ref_id });
+    const { error } = await this.sb.from('audit_log').insert({
+      id: uuid(), user_id: this.me.user_id, action, text, ref_id, household_id: this.householdId,
+    });
     if (error) console.warn('audit_log', error);
     // Нөгөө хүнд push мэдэгдэл (функц байрлуулаагүй бол чимээгүй алгасна)
     this.sb.functions.invoke('notify', { body: { body: `${text} ${PUSH_VERB[action] || ''}`.trim(), tag: ref_id || undefined } })
@@ -334,9 +456,11 @@ export class SupabaseStore {
   }
 
   async savePushSubscription(sub) {
+    this.#requireHousehold();
     const { error } = await this.sb.from('push_subscriptions').upsert({
       endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth,
-      user_id: this.me.user_id, user_agent: navigator.userAgent.slice(0, 200),
+      user_id: this.me.user_id, household_id: this.householdId,
+      user_agent: navigator.userAgent.slice(0, 200),
     }, { onConflict: 'endpoint' });
     if (error) {
       throw new Error(error.code === 'PGRST205' || error.code === '42P01'
@@ -345,7 +469,8 @@ export class SupabaseStore {
   }
 
   async deletePushSubscription(endpoint) {
-    await this.sb.from('push_subscriptions').delete().eq('endpoint', endpoint);
+    if (!this.householdId) return;
+    await this.sb.from('push_subscriptions').delete().eq('household_id', this.householdId).eq('endpoint', endpoint);
   }
 
   async testPush() {
@@ -363,7 +488,8 @@ export class SupabaseStore {
   }
 
   async add(kind, fields) {
-    const row = { id: uuid(), ...fields, created_by: this.me.user_id };
+    this.#requireHousehold();
+    const row = { id: uuid(), ...fields, created_by: this.me.user_id, household_id: this.householdId };
     const { data, error } = await this.sb.from(TABLE[kind]).insert(row).select().single();
     if (error) {
       // Хуримтлалын данснаас гаргах зарлагад expenses.account багана хэрэгтэй
@@ -377,47 +503,54 @@ export class SupabaseStore {
   }
 
   async remove(kind, row, action = 'delete') {
+    this.#requireHousehold();
     const { error } = await this.sb.from(TABLE[kind])
-      .update({ deleted: true, deleted_by: this.me.user_id, deleted_at: nowISO() }).eq('id', row.id);
+      .update({ deleted: true, deleted_by: this.me.user_id, deleted_at: nowISO() })
+      .eq('household_id', this.householdId).eq('id', row.id);
     if (error) throw error;
     await this.#audit(action, describe(kind, row), row.id);
   }
 
   async restore(kind, row) {
+    this.#requireHousehold();
     const { error } = await this.sb.from(TABLE[kind])
-      .update({ deleted: false, deleted_by: null, deleted_at: null }).eq('id', row.id);
+      .update({ deleted: false, deleted_by: null, deleted_at: null })
+      .eq('household_id', this.householdId).eq('id', row.id);
     if (error) throw error;
     await this.#audit('restore', describe(kind, row), row.id);
   }
 
   subscribe(cb) {
+    if (!this.householdId) return;
+    const hid = this.householdId;
+    const filter = `household_id=eq.${hid}`;
     const change = () => cb({ type: 'change' });
     if (this.channel) this.sb.removeChannel(this.channel);
-    this.channel = this.sb.channel('bidnii-sanhuu')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'incomes' }, change)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, change)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'achievements' }, change)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_log' }, (p) => {
+    this.channel = this.sb.channel(`hh-${hid}-finance`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incomes', filter }, change)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', filter }, change)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'achievements', filter }, change)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_log', filter }, (p) => {
         if (p.eventType === 'INSERT') cb({ type: 'audit', row: p.new });
         change();
       })
       .subscribe();
     // Тусдаа суваг: transfers.sql ажиллуулаагүй (хүснэгт байхгүй) үед үндсэн суваг эвдрэхгүй
     if (this.transferChannel) this.sb.removeChannel(this.transferChannel);
-    this.transferChannel = this.sb.channel('bidnii-sanhuu-transfers')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transfers' }, change)
+    this.transferChannel = this.sb.channel(`hh-${hid}-transfers`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transfers', filter }, change)
       .subscribe();
     if (this.typesChannel) this.sb.removeChannel(this.typesChannel);
-    this.typesChannel = this.sb.channel('bidnii-sanhuu-income-types')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'income_types' }, change)
+    this.typesChannel = this.sb.channel(`hh-${hid}-income-types`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'income_types', filter }, change)
       .subscribe();
     // Тусдаа суваг: chat.sql ажиллуулаагүй үед бусад өгөгдлийн шууд шинэчлэлт эвдрэхгүй.
     if (this.chatChannel) this.sb.removeChannel(this.chatChannel);
-    this.chatChannel = this.sb.channel('bidnii-sanhuu-chat')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => {
+    this.chatChannel = this.sb.channel(`hh-${hid}-chat`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter }, (p) => {
         cb({ type: 'chat', row: p.new });
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reads' }, (p) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reads', filter }, (p) => {
         if (p.new?.user_id === this.userId) cb({ type: 'chat-read', at: p.new.last_read_at });
       })
       .subscribe();
@@ -432,6 +565,9 @@ const ME_KEY = 'bidnii-sanhuu-demo-me';
 
 export class LocalStore {
   mode = 'demo';
+  needsHousehold = false;
+  householdId = 'demo-household';
+  household = { id: 'demo-household', name: 'Манай өрх' };
   base = [
     { user_id: 'demo-enkh', name: 'Энх-Амгалан', emoji: '👨' },
     { user_id: 'demo-tsetsgee', name: 'Цэцгээ', emoji: '👩' },

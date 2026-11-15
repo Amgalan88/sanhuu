@@ -43,17 +43,25 @@ function mockSupabase() {
           };
         },
         update(patch) {
-          return {
-            eq(_col, id) {
-              return (async () => {
+          const eqs = [];
+          const builder = {
+            eq(col, val) {
+              eqs.push([col, val]);
+              return builder;
+            },
+            then(ok, bad) {
+              const pending = (async () => {
                 if (flags.gate) await flags.gate;
                 if (flags.failRemove) return { error: { message: 'Сүлжээ тасарлаа' } };
+                const id = eqs.find(([col]) => col === 'id')?.[1];
                 const row = db[table].find((r) => r.id === id);
                 if (row) Object.assign(row, patch);
                 return { error: null };
               })();
+              return pending.then(ok, bad);
             },
           };
+          return builder;
         },
       };
     },
@@ -66,6 +74,7 @@ function storeWith(mock) {
   const store = new SupabaseStore('http://127.0.0.1', 'test-anon-key');
   store.sb = mock.client;
   store.me = { user_id: 'user-1' };
+  store.householdId = 'hh-test';
   return store;
 }
 

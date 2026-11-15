@@ -25,6 +25,7 @@ import {
 } from './music.js';
 import { customLink, setCustomLink, parseYouTube } from './youtube.js';
 import { cleanBody, unreadCount, readCursor, clockTime, dayHeading } from './chat.js';
+import { authGate, householdNameError, personNameError, inviteCodeError } from './household.js';
 
 // ============================================================
 // Туслах
@@ -75,6 +76,7 @@ const S = {
   coinMode: 'total',
   achievements: [],
   achievementsMissing: false,
+  inviteCode: null,
   incomeTypes: [],        // орлогын төрлийн тохиргоо { key, name, emoji, alloc, updated_by, updated_at }
   incomeTypesMissing: false,
   typeEdit: null,         // засаж буй төрөл (цонх)
@@ -111,6 +113,11 @@ async function boot() {
   initMusic(); // нээмэгц хөгжим эхэлнэ (хөтөч хүлээлгэвэл анхны хүрэлтээр)
   onMusicChange(renderMusic);
   registerSW(); // push мэдэгдэл, апп болгон суулгах
+  // Локал дэлгэцийн зураг. Прод hostname дээр ажиллахгүй, Supabase руу хүсэлт явуулахгүй.
+  if (isLocalPreview('household')) {
+    S.store = previewStore();
+    return showHousehold();
+  }
   S.store = SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStore();
   if (S.store.mode === 'supabase') S.store.onRecovery = () => showLogin('', 'recovery');
   try {
@@ -118,8 +125,35 @@ async function boot() {
   } catch (e) {
     return showLogin(e.message);
   }
-  if (S.store.recovery) return showLogin('', 'recovery');
-  S.me ? enterApp() : showLogin();
+  openGate();
+}
+
+function isLocalPreview(screen) {
+  const host = location.hostname;
+  if (host !== 'localhost' && host !== '127.0.0.1') return false;
+  return new URLSearchParams(location.search).get('screen') === screen;
+}
+
+function previewStore() {
+  return {
+    mode: 'preview',
+    needsHousehold: true,
+    async signOut() {},
+    async createHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
+    async joinHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
+  };
+}
+
+function openGate() {
+  const gate = authGate({
+    recovery: S.store.recovery,
+    needsHousehold: S.store.needsHousehold,
+    me: S.me,
+  });
+  if (gate === 'recovery') return showLogin('', 'recovery');
+  if (gate === 'household') return showHousehold();
+  if (gate === 'app') return enterApp();
+  return showLogin();
 }
 
 const devOnly = (html) => (S.store?.mode === 'demo' ? html : '');
@@ -131,6 +165,8 @@ function showLogin(error = '', mode = '') {
   $('#app').hidden = true;
   $('#login').hidden = false;
   $('#login-error').textContent = error;
+  const sub = $('#login-sub');
+  if (sub) sub.textContent = 'Гэр бүлийн нийтийн данс';
   const body = $('#login-body');
 
   if (mode === 'recovery' || S.store.recovery) {
@@ -158,7 +194,8 @@ function showLogin(error = '', mode = '') {
         S.store.recovery = false;
         history.replaceState(null, '', location.pathname + location.search);
         S.me = await S.store.resume();
-        if (S.me) enterApp();
+        if (S.store.needsHousehold) showHousehold();
+        else if (S.me) enterApp();
         else showLogin('Нууц үг шинэчлэгдлээ. Шинэ нууц үгээрээ нэвтэрнэ үү.');
       } catch (err) {
         $('#login-error').textContent = err.message;
@@ -191,6 +228,7 @@ function showLogin(error = '', mode = '') {
       <input class="field" id="password" type="password" autocomplete="current-password" required>
       <button type="button" class="linkish" id="forgot">Нууц үг мартсан</button>
       <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Нэвтрэх</button>
+      <button type="button" class="linkish" id="show-signup">Шинээр бүртгүүлэх</button>
     </form>
     <form id="reset-form" hidden novalidate>
       <p class="note" style="margin-top:0">Имэйл хаягаа оруулна уу. Нууц үг сэргээх холбоос очно.</p>
@@ -208,7 +246,7 @@ function showLogin(error = '', mode = '') {
     $('#login-error').textContent = '';
     try {
       S.me = await S.store.signIn({ email: $('#email').value.trim(), password: $('#password').value });
-      enterApp();
+      openGate();
     } catch (err) {
       $('#login-error').textContent = err.message;
       btn.disabled = false;
@@ -250,6 +288,126 @@ function showLogin(error = '', mode = '') {
     } finally {
       btn.disabled = false;
       btn.textContent = 'Холбоос илгээх';
+    }
+  });
+  $('#show-signup').addEventListener('click', () => showSignup());
+}
+
+function showSignup() {
+  pauseMusic();
+  $('#boot')?.remove();
+  $('#app').hidden = true;
+  $('#login').hidden = false;
+  $('#login-error').textContent = '';
+  const sub = $('#login-sub');
+  if (sub) sub.textContent = 'Шинэ бүртгэл';
+  $('#login-body').innerHTML = `
+    <form id="signup-form" novalidate>
+      <p class="note" style="margin-top:0">Бүртгэл зөвхөн таны өрхөд харагдана. Имэйл баталгаажуулалт ассан бол шуудангаа шалгана уу.</p>
+      <label for="signup-email">Имэйл</label>
+      <input class="field" id="signup-email" type="email" autocomplete="username" inputmode="email" required>
+      <label for="signup-password">Нууц үг</label>
+      <input class="field" id="signup-password" type="password" autocomplete="new-password" minlength="6" required>
+      <label for="signup-password2">Нууц үг давтах</label>
+      <input class="field" id="signup-password2" type="password" autocomplete="new-password" minlength="6" required>
+      <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Бүртгүүлэх</button>
+      <button type="button" class="linkish" id="signup-back">Нэвтрэх рүү буцах</button>
+    </form>`;
+  $('#signup-back').addEventListener('click', () => showLogin());
+  $('#signup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = $('#signup-email').value.trim();
+    const password = $('#signup-password').value;
+    const again = $('#signup-password2').value;
+    $('#login-error').textContent = '';
+    if (!email.includes('@')) { $('#login-error').textContent = 'Имэйл хаягаа зөв оруулна уу.'; return; }
+    if (password.length < 6) { $('#login-error').textContent = 'Нууц үг хамгийн багадаа 6 тэмдэгт байна.'; return; }
+    if (password !== again) { $('#login-error').textContent = 'Нууц үг таарахгүй байна.'; return; }
+    const btn = e.submitter;
+    btn.disabled = true;
+    btn.textContent = 'Түр хүлээнэ үү…';
+    try {
+      S.me = await S.store.signUp({ email, password });
+      if (S.store.pendingConfirmation) {
+        showLogin();
+        $('#login-error').textContent = 'Бүртгэл үүслээ. Имэйлээ баталгаажуулаад нэвтэрнэ үү.';
+        return;
+      }
+      openGate();
+    } catch (err) {
+      $('#login-error').textContent = err.message;
+      btn.disabled = false;
+      btn.textContent = 'Бүртгүүлэх';
+    }
+  });
+}
+
+function showHousehold() {
+  pauseMusic();
+  delete document.body.dataset.view;
+  $('#boot')?.remove();
+  $('#app').hidden = true;
+  $('#login').hidden = false;
+  $('#login-error').textContent = '';
+  const sub = $('#login-sub');
+  if (sub) sub.textContent = 'Таны өгөгдөл зөвхөн таны өрхөд харагдана';
+  $('#login-body').innerHTML = `
+    <form id="household-form" novalidate>
+      <label for="person-name">Таны нэр</label>
+      <input class="field" id="person-name" name="person" autocomplete="name" maxlength="40" required placeholder="Жишээ: Болд">
+      <label for="household-name">Өрхийн нэр</label>
+      <input class="field" id="household-name" name="household" maxlength="80" required value="Манай өрх">
+      <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Өрх үүсгэх</button>
+    </form>
+    <div class="login-or">эсвэл</div>
+    <form id="join-form" novalidate>
+      <label for="invite-code-input">Урилгын код</label>
+      <input class="field" id="invite-code-input" name="code" autocapitalize="characters" autocomplete="off" maxlength="12" placeholder="8 тэмдэгт" required>
+      <button class="btn block" style="margin-top:8px;min-height:54px" type="submit">Энэ өрхөд нэгдэх</button>
+      <button type="button" class="linkish" id="household-logout">Гарах</button>
+    </form>`;
+
+  $('#household-logout').addEventListener('click', async () => {
+    await S.store.signOut();
+    S.me = null;
+    showLogin();
+  });
+
+  $('#household-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const displayName = $('#person-name').value;
+    const name = $('#household-name').value;
+    $('#login-error').textContent = personNameError(displayName) || householdNameError(name);
+    if ($('#login-error').textContent) return;
+    const btn = e.submitter;
+    btn.disabled = true;
+    btn.textContent = 'Үүсгэж байна…';
+    try {
+      S.me = await S.store.createHousehold({ name, displayName });
+      openGate();
+    } catch (err) {
+      $('#login-error').textContent = err.message;
+      btn.disabled = false;
+      btn.textContent = 'Өрх үүсгэх';
+    }
+  });
+
+  $('#join-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const displayName = $('#person-name').value;
+    const code = $('#invite-code-input').value;
+    $('#login-error').textContent = personNameError(displayName) || inviteCodeError(code);
+    if ($('#login-error').textContent) return;
+    const btn = e.submitter;
+    btn.disabled = true;
+    btn.textContent = 'Нэгдэж байна…';
+    try {
+      S.me = await S.store.joinHousehold({ code, displayName });
+      openGate();
+    } catch (err) {
+      $('#login-error').textContent = err.message;
+      btn.disabled = false;
+      btn.textContent = 'Энэ өрхөд нэгдэх';
     }
   });
 }
@@ -1649,7 +1807,13 @@ function renderMore() {
       <label class="btn" for="avatar-file" style="flex:1">📷 Профайл зураг солих</label>
       ${S.me.avatar_url ? '<button type="button" class="btn" id="avatar-remove">Арилгах</button>' : ''}
     </div>
-    <div class="btn-row"><button type="button" class="btn block" id="logout">🚪 Гарах</button></div>`;
+    <div class="btn-row"><button type="button" class="btn block" id="logout">🚪 Гарах</button></div>
+    ${demo ? '' : `<div class="invite-box">
+      <h3>🔗 Урилга</h3>
+      <p class="note">Нэг удаагийн код, 7 хоног хүчинтэй. Хүлээн авагч шинээр бүртгүүлээд кодоо оруулна.</p>
+      <button type="button" class="btn block" id="invite-create">Урилгын код үүсгэх</button>
+      ${S.inviteCode ? `<p class="invite-code" id="invite-code">${esc(S.inviteCode)}</p><button type="button" class="btn" id="invite-copy">Код хуулах</button>` : ''}
+    </div>`}`;
 
   renderNotif();
   renderMusic();
@@ -2161,9 +2325,12 @@ function wireGlobal() {
       await flushChatRead();
       await S.store.signOut();
       S.me = null;
+      S.inviteCode = null;
       S.ready = false;
       showLogin();
     }
+    if (e.target.closest('#invite-create')) return createInvite();
+    if (e.target.closest('#invite-copy')) return copyInvite();
   });
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me) scheduleReload(100); });
@@ -2259,6 +2426,31 @@ async function deleteRow(kind, id) {
     scheduleReload();
   } catch (err) {
     toast(`⚠️ Устгаж чадсангүй: ${err.message}`, { kind: 'err' });
+  }
+}
+
+async function createInvite() {
+  const btn = $('#invite-create');
+  if (!btn || S.store.mode !== 'supabase') return;
+  btn.disabled = true;
+  try {
+    const data = await S.store.createInvite();
+    S.inviteCode = data?.code || '';
+    renderMore();
+    toast('🔗 Урилгын код бэлэн. 7 хоног, нэг удаа.');
+  } catch (err) {
+    toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
+    btn.disabled = false;
+  }
+}
+
+async function copyInvite() {
+  if (!S.inviteCode) return;
+  try {
+    await navigator.clipboard.writeText(S.inviteCode);
+    toast('📋 Код хуулагдлаа');
+  } catch {
+    toast(S.inviteCode, { ms: 6000 });
   }
 }
 

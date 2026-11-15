@@ -1,11 +1,14 @@
 // Supabase Edge Function: notify
-// Нэг админ үйлдэл хийхэд НӨГӨӨ админы бүх төхөөрөмж рүү Web Push илгээнэ.
+// Нэг гишүүн үйлдэл хийхэд ЗӨВХӨН тэр өрхийн бусад гишүүдийн төхөөрөмж рүү Web Push илгээнэ.
 // { test: true } бол зөвхөн өөрийн төхөөрөмж рүү туршилтын мэдэгдэл.
+// Өрхийн id-г клиентээс авдаггүй — JWT-ийн хэрэглэгчийн household_members мөрөөс.
 //
 // Secrets (Edge Functions → Secrets): VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
 // SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY автоматаар байдаг.
+// Энэ файлыг репод шинэчилсэн. Прод руу гараар deploy хийнэ (db push хийхгүй).
 import webpush from 'npm:web-push@3.6.7';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { recipientUserIds } from './recipients.js';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -20,11 +23,15 @@ Deno.serve(async (req) => {
   try {
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-    // Дуудаж буй хэрэглэгч админ эсэх
+    // Дуудагч өрхтэй эсэх. admins биш — өөр өрхийн санхүү рүү push явуулахгүй.
     const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
     const { data: { user } } = await admin.auth.getUser(token);
     if (!user) return json({ error: 'unauthorized' }, 401);
-    const { data: me } = await admin.from('admins').select('name, emoji').eq('user_id', user.id).maybeSingle();
+    const { data: me, error: meError } = await admin.from('household_members')
+      .select('household_id, name, emoji')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (meError) throw meError;
     if (!me) return json({ error: 'forbidden' }, 403);
 
     const input = await req.json().catch(() => ({}));
@@ -44,9 +51,17 @@ Deno.serve(async (req) => {
       Deno.env.get('VAPID_PRIVATE_KEY')!,
     );
 
-    let q = admin.from('push_subscriptions').select('endpoint, p256dh, auth');
-    q = test ? q.eq('user_id', user.id) : q.neq('user_id', user.id);
-    const { data: subs, error } = await q;
+    const { data: members, error: membersError } = await admin.from('household_members')
+      .select('user_id')
+      .eq('household_id', me.household_id);
+    if (membersError) throw membersError;
+    const ids = recipientUserIds(members ?? [], user.id, { test });
+    if (!ids.length) return json({ sent: 0, devices: 0 });
+
+    const { data: subs, error } = await admin.from('push_subscriptions')
+      .select('endpoint, p256dh, auth')
+      .eq('household_id', me.household_id)
+      .in('user_id', ids);
     if (error) throw error;
 
     let sent = 0;
