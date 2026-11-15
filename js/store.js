@@ -14,6 +14,7 @@
 import { describe, sourceOf, allocLabel } from './finance.js';
 import { cleanBody } from './chat.js';
 import { blobToDataURL } from './image.js';
+import { normalizeMnPhone, phoneAuthError } from './phone-auth.js';
 import {
   householdNameError, personNameError, inviteCodeError, normalizeInviteCode, rpcMessage,
 } from './household.js';
@@ -72,10 +73,30 @@ export class SupabaseStore {
     return this.#loadMe(data.session.user.id);
   }
 
-  async signIn({ email, password }) {
-    const { data, error } = await this.sb.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message === 'Invalid login credentials' ? 'Имэйл эсвэл нууц үг буруу байна' : error.message);
+  async signIn({ email, phone, password }) {
+    let credentials;
+    let invalid = 'Имэйл эсвэл нууц үг буруу байна';
+    if (phone) {
+      const parsed = normalizeMnPhone(phone);
+      if (!parsed.ok) throw new Error(parsed.error);
+      credentials = { phone: parsed.e164, password };
+      invalid = 'Утас эсвэл нууц үг буруу байна';
+    } else {
+      credentials = { email, password };
+    }
+    const { data, error } = await this.sb.auth.signInWithPassword(credentials);
+    if (error) {
+      const disabled = /phone/i.test(error.message) && /disabled/i.test(error.message);
+      throw new Error(disabled ? 'Утасны нэвтрэлт хаалттай байна' : (error.message === 'Invalid login credentials' ? invalid : error.message));
+    }
     return this.#loadMe(data.user.id);
+  }
+
+  /** phone-auth Edge Function. VERIFY_MN_API_KEY энд ирэхгүй. */
+  async phoneAuth(body) {
+    const { data, error } = await this.sb.functions.invoke('phone-auth', { body });
+    if (error || data?.error) throw new Error(await phoneAuthError(error, data));
+    return data;
   }
 
   /** Имэйлээр нууц үг сэргээх холбоос. Supabase Auth (email + password). */
