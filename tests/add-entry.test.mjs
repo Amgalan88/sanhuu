@@ -1,4 +1,5 @@
-// Нэвтэрсэн өрхийн гишүүнд орлого/зарлага нэмэх товч харагдана.
+// Нэвтэрсэн өрхийн эзэн нүүр дээр орлого/зарлага нэмэх маягтыг даралгүй хардаг.
+// Хадгалах нь цонхтой ижил insert замаар явна.
 // Supabase клиентийг mock-оор солино — прод руу хандахгүй, өгөгдөл бичихгүй.
 
 import { test } from 'node:test';
@@ -14,26 +15,28 @@ const HH = 'a0000000-0000-4000-8000-0000000000a1';
 const USER = 'b0000000-0000-4000-8000-0000000000b1';
 const PARTNER = 'c0000000-0000-4000-8000-0000000000c1';
 
-test('overlap does not hide the add button for a household member', () => {
+test('home hides the add button because the form is already on screen', () => {
   const home = resolveFab({
     view: 'home',
-    overlapsAt: () => true, // даалгавар, устгах товч + товчны доор байна
+    overlapsAt: () => true,
   });
-  assert.equal(home.hidden, false);
+  assert.equal(home.hidden, true);
   assert.equal(home.lift, 0);
 
   const tx = resolveFab({ view: 'tx', overlapsAt: (lift) => lift < 112 });
   assert.equal(tx.hidden, false);
   assert.equal(tx.lift, 112);
 
-  assert.equal(resolveFab({ view: 'home' }).hidden, false);
+  assert.equal(resolveFab({ view: 'home' }).hidden, true);
+  assert.equal(resolveFab({ view: 'ach' }).hidden, false);
+  assert.equal(resolveFab({ view: 'history' }).hidden, false);
   assert.equal(resolveFab({ view: 'chat', overlapsAt: () => false }).hidden, true);
   assert.equal(resolveFab({ view: 'more' }).hidden, true);
   assert.equal(resolveFab({ view: 'tx', sheetOpen: true }).hidden, true);
-  assert.equal(resolveFab({ view: 'home', hiddenByScroll: true }).hidden, true);
+  assert.equal(resolveFab({ view: 'tx', hiddenByScroll: true }).hidden, true);
 });
 
-test('logged-in household owner sees the income and expense add button', async () => {
+test('logged-in household owner sees the inline add form on Home and saves through insert', async () => {
   const chrome = chromePath();
   assert.ok(chrome, 'Chrome is required (CHROME_PATH or /usr/bin/google-chrome)');
   const { default: puppeteer } = await import('puppeteer-core');
@@ -77,11 +80,50 @@ test('logged-in household owner sees the income and expense add button', async (
       return app && !app.hidden && document.body.dataset.view === 'home';
     }, { timeout: 15000 });
 
-    const home = await addEntryState(page);
-    assertVisible(home, 'home');
+    const home = await homeFormState(page);
+    assert.equal(home.appHidden, false, 'app is hidden');
+    assert.equal(home.loginHidden, true, 'still on the login or household screen');
+    assert.equal(home.onboarding, false, 'household onboarding replaced the app');
+    assert.equal(home.view, 'home');
+    assert.match(home.who, /Энх-Амгалан/);
+    assert.equal(home.inHome, true, 'add form is not on Home');
+    assert.equal(home.inSheet, false, 'add form is inside the sheet before any tap');
+    assert.equal(home.sheetOpen, false, 'sheet opened on its own');
+    assert.deepEqual(home.kinds, ['expense', 'income']);
+    assert.ok(home.kindHeight >= 40 && home.kindTop >= 0 && home.kindBottom <= home.vh, 'income/expense toggle is off the phone screen');
+    assert.ok(home.amountHeight >= 24 && home.amountTop >= 0 && home.amountBottom <= home.vh, 'amount field is off the phone screen');
+    assert.equal(home.noteInForm, true, 'optional note is missing');
+    assert.equal(home.saveInForm, true, 'save button is missing');
+    assert.ok(home.catCount >= 4, 'categories are missing');
+    assert.equal(home.fabHide, true, 'add button still covers Home');
 
+    await page.click('#quick [data-kind="income"]');
+    assert.equal(await page.$eval('#quick [data-kind="income"]', (el) => el.getAttribute('aria-pressed')), 'true');
+    await page.click('#quick [data-kind="expense"]');
+    await page.type('#amount', '25000');
+    await page.click('#cats [data-cat="food"]');
+    await page.type('#note', 'Талх');
+    assert.equal(await page.$eval('#tx-sheet', (el) => el.open), false, 'filling the form opened the sheet');
+    await page.click('#save');
+    await page.waitForFunction(() => (window.__inserts || []).some((item) => item.table === 'expenses'));
+
+    const expenseInserts = await page.evaluate(() => (window.__inserts || []).filter((item) => item.table === 'expenses'));
+    assert.equal(expenseInserts.length, 1);
+    assert.equal(expenseInserts[0].row.household_id, HH);
+    assert.equal(expenseInserts[0].row.amount, 25000);
+    assert.equal(expenseInserts[0].row.category, 'food');
+    assert.equal(expenseInserts[0].row.note, 'Талх');
+    assert.equal(expenseInserts[0].row.created_by, USER);
+    assert.equal(expenseInserts[0].row.account, undefined);
+    assert.equal(await page.$eval('#expenses', (el) => el.textContent.includes('Талх')), true);
+
+    await page.waitForFunction(() => !document.querySelector('.toast'));
     await page.$eval('.tabbar button[data-go="tx"]', (el) => el.click());
     await page.waitForFunction(() => document.body.dataset.view === 'tx');
+    await page.waitForFunction(() => {
+      const fab = document.querySelector('#fab');
+      return fab && !fab.classList.contains('hide') && getComputedStyle(fab).opacity === '1';
+    }, { timeout: 3000 });
     const tx = await addEntryState(page);
     assertVisible(tx, 'tx');
 
@@ -91,6 +133,7 @@ test('logged-in household owner sees the income and expense add button', async (
     assert.deepEqual(kinds, ['expense', 'income']);
     const title = await page.$eval('#tx-sheet-title', (el) => el.textContent);
     assert.match(title, /Гүйлгээ нэмэх/);
+    assert.equal(await page.$eval('#tx-form', (el) => !!el.closest('#tx-sheet')), true);
 
     assert.deepEqual(leaked, []);
     assert.deepEqual(pageErrors, []);
@@ -112,6 +155,39 @@ function assertVisible(state, view) {
   assert.ok(state.width >= 40 && state.height >= 40, `${view}: add button is not drawn`);
   assert.equal(state.hitId, 'fab', `${view}: add button is covered (${state.hitId})`);
   assert.ok(state.top > 0 && state.bottom < 800, `${view}: add button is off the phone screen`);
+}
+
+function homeFormState(page) {
+  return page.evaluate(() => {
+    const form = document.querySelector('#tx-form');
+    const kind = document.querySelector('#quick .kind');
+    const amount = document.querySelector('#amount');
+    const kr = kind.getBoundingClientRect();
+    const ar = amount.getBoundingClientRect();
+    const fab = document.querySelector('#fab');
+    return {
+      view: document.body.dataset.view || '',
+      who: document.querySelector('#who')?.textContent || '',
+      appHidden: !!document.querySelector('#app')?.hidden,
+      loginHidden: !!document.querySelector('#login')?.hidden,
+      onboarding: !!document.querySelector('#household-form'),
+      inHome: !!form?.closest('#quick-home'),
+      inSheet: !!form?.closest('#tx-sheet'),
+      sheetOpen: !!document.querySelector('#tx-sheet')?.open,
+      kinds: [...document.querySelectorAll('#quick [data-kind]')].map((el) => el.dataset.kind),
+      kindTop: kr.top,
+      kindBottom: kr.bottom,
+      kindHeight: kr.height,
+      amountTop: ar.top,
+      amountBottom: ar.bottom,
+      amountHeight: ar.height,
+      noteInForm: !!document.querySelector('#note')?.closest('#tx-form'),
+      saveInForm: !!document.querySelector('#save')?.closest('#tx-form'),
+      catCount: document.querySelectorAll('#cats [data-cat]').length,
+      fabHide: !!fab?.classList.contains('hide'),
+      vh: window.innerHeight,
+    };
+  });
 }
 
 function addEntryState(page) {
@@ -215,7 +291,7 @@ function mockSupabaseModule() {
 const tables = ${JSON.stringify(tables)};
 const USER = ${JSON.stringify(USER)};
 function chain(table) {
-  const op = { eqs: [] };
+  const op = { eqs: [], inserted: null };
   const rows = () => (tables[table] || []).filter((row) => op.eqs.every(([k, v]) => row[k] === v));
   const b = {
     select() { return b; },
@@ -224,7 +300,15 @@ function chain(table) {
     in() { return b; },
     order() { return b; },
     limit() { return b; },
-    insert() { return b; },
+    insert(row) {
+      const list = Array.isArray(row) ? row : [row];
+      op.inserted = list;
+      tables[table] = tables[table] || [];
+      tables[table].push(...list.map((item) => ({ ...item })));
+      window.__inserts = window.__inserts || [];
+      for (const item of list) window.__inserts.push({ table, row: item });
+      return b;
+    },
     update() { return b; },
     upsert() { return b; },
     delete() { return b; },
@@ -233,8 +317,11 @@ function chain(table) {
       const data = rows();
       return Promise.resolve({ data: data[0] || null, error: data.length > 1 ? { message: 'multiple rows' } : null });
     },
-    single() { return Promise.resolve({ data: rows()[0] || null, error: null }); },
-    then(resolve, reject) { return Promise.resolve({ data: rows(), error: null }).then(resolve, reject); },
+    single() {
+      const data = op.inserted ? op.inserted[0] : (rows()[0] || null);
+      return Promise.resolve({ data, error: null });
+    },
+    then(resolve, reject) { return Promise.resolve({ data: op.inserted || rows(), error: null }).then(resolve, reject); },
   };
   return b;
 }

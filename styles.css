@@ -407,6 +407,12 @@ main {
 .ov-saved .ov-sub { color: var(--muted); }
 
 .extra-toggle { margin-top: 8px; min-height: 36px; padding: 0 4px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+.quick-note {
+  box-sizing: border-box; width: 100%; min-height: 48px; margin-top: 10px; padding: 0 12px;
+  border-radius: 14px; font-size: 16px; border: 1.5px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent); color: var(--text);
+}
+.quick-note:focus { outline: none; border-color: var(--gold-fill); }
 .extra { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 4px; }
 .extra input {
   min-height: 48px; min-width: 0; padding: 0 12px; border-radius: 14px; font-size: 16px;
@@ -902,8 +908,11 @@ label.btn { cursor: pointer; }
 .sheet form { display: grid; gap: 12px; padding: 16px 16px 0; max-height: 92dvh; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .sheet form > * { min-width: 0; max-width: 100%; }
 .sheet .save { position: sticky; bottom: 0; margin: 8px 0 0; width: 100%; border-radius: 16px; padding-bottom: env(safe-area-inset-bottom); min-height: calc(58px + env(safe-area-inset-bottom)); }
-#tx-sheet .quick, #tx-sheet .seg, #tx-sheet .chips, #tx-sheet .cats, #tx-sheet .amount-wrap, #tx-sheet .accs { min-width: 0; max-width: 100%; }
-#tx-sheet .sheet-head { position: sticky; top: 0; z-index: 2; background: var(--surface); padding-bottom: 4px; }
+#tx-sheet[open] { display: flex; flex-direction: column; padding: 16px 16px 0; gap: 4px; }
+#tx-sheet .sheet-head { flex: none; position: sticky; top: 0; z-index: 2; background: var(--surface); padding-bottom: 4px; }
+#tx-sheet-slot { display: contents; }
+#tx-sheet form { flex: 1 1 auto; min-height: 0; max-height: calc(92dvh - 76px); margin: 0; padding: 0 0 env(safe-area-inset-bottom); }
+#tx-sheet .quick, #tx-sheet .seg, #tx-sheet .chips, #tx-sheet .cats, #tx-sheet .amount-wrap, #tx-sheet .accs, #tx-sheet .quick-note { min-width: 0; max-width: 100%; }
 .sheet-head { display: flex; justify-content: space-between; align-items: center; }
 .icon-x { width: 40px; height: 40px; border-radius: 12px; background: var(--surface-2); font-size: 16px; }
 .photo-pick {
@@ -986,6 +995,27 @@ canvas.backdrop { position: fixed; inset: 0; width: 100%; height: 100%; z-index:
    ============================================================ */
 .card { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 4px 2px; }
 .quick, #tasks { border: 0; padding: 4px 2px; }
+/* Нүүр: маягт толгой ба видеоны хооронд, эхний дэлгэцэд багтана. Хурдан дүнгийн товч цонхонд үлдэнэ. */
+.quick-card {
+  box-sizing: border-box; width: 100%; max-width: 1120px; margin: 0 auto; padding: 6px 16px 2px;
+}
+.quick-title { font-size: 17px; margin: 0 0 8px; }
+body:not([data-view="home"]) #quick-home { display: none; }
+#quick-home .chips { display: none; }
+#quick-home .amount-wrap { margin: 8px 0 4px; }
+#quick-home .cats {
+  display: flex; grid-template-columns: none; gap: 8px; margin-top: 8px;
+  overflow-x: auto; scrollbar-width: none; padding-bottom: 2px;
+}
+#quick-home .cats::-webkit-scrollbar { display: none; }
+#quick-home .cat { flex: 0 0 76px; min-height: 64px; padding: 4px 2px; }
+#quick-home .cat .e { font-size: 22px; }
+#quick-home .accs { margin-top: 8px; }
+#quick-home .quick-note { min-height: 44px; margin-top: 8px; }
+#quick-home .extra-toggle { margin-top: 2px; min-height: 32px; }
+#quick-home .preview { margin-top: 4px; }
+#quick-home .save { margin-top: 8px; min-height: 48px; }
+body[data-view="home"] main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .view { gap: 30px; }
 .view > .card + .card::before {
   content: ''; display: block; height: 1px; margin: -16px 0 16px;
