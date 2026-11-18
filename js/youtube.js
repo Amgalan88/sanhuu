@@ -150,6 +150,15 @@ function mount(host, YT, m) {
   const src = embedSrc(q, { autoplay: wantPlay, origin: location.origin });
   if (!src) { unavailable = true; notify(); return; }
   mood = m;
+  // Тоглуулагч фокус авахад хуудсыг үсэргэж, нүүр дээрх маягтыг дээш нь гаргадаг.
+  // Хэрэглэгч өөрөө гүйлгээгүй бол байранд нь буцаана.
+  const y = scrollY;
+  let pinScroll = true;
+  const release = () => { pinScroll = false; };
+  addEventListener('pointerdown', release, { capture: true, once: true });
+  addEventListener('wheel', release, { capture: true, once: true, passive: true });
+  addEventListener('keydown', release, { capture: true, once: true });
+  const pin = () => { if (pinScroll && scrollY !== y) scrollTo(0, y); };
   const iframe = document.createElement('iframe');
   iframe.className = 'yt-iframe';
   iframe.title = 'YouTube тоглуулагч';
@@ -158,9 +167,11 @@ function mount(host, YT, m) {
   iframe.setAttribute('allowfullscreen', '');
   iframe.src = src;
   host.replaceChildren(iframe);
+  iframe.addEventListener('load', () => { pin(); setTimeout(pin, 50); });
   player = new YT.Player(iframe, {
     events: {
       onReady: () => {
+        pin();
         ready = true;
         try { player.mute(); } catch { /* дуугүй автоматаар */ }
         player.setVolume(volume);

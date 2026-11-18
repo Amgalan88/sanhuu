@@ -831,11 +831,14 @@ function buildQuick() {
   txSheet.addEventListener('click', (ev) => {
     if (ev.target === txSheet || ev.target.closest('[data-close]')) closeTxSheet();
   });
-  txSheet.addEventListener('close', updateFab);
+  txSheet.addEventListener('close', () => {
+    placeQuick('home');
+    updateFab();
+  });
   $('#extra-toggle').addEventListener('click', () => {
     const ex = $('#quick .extra');
     ex.hidden = !ex.hidden;
-    if (!ex.hidden) $('#note').focus();
+    if (!ex.hidden) $('#date').focus();
   });
 
   renderQuickControls();
@@ -845,7 +848,7 @@ function buildQuick() {
 
 function updateExtraLabel() {
   const d = $('#date').value;
-  $('#extra-toggle').textContent = `📝 Тайлбар · 📅 ${!d || d === todayISO() ? 'Өнөөдөр' : shortDate(d)}`;
+  $('#extra-toggle').textContent = `📅 ${!d || d === todayISO() ? 'Өнөөдөр' : shortDate(d)}`;
 }
 
 function renderQuickControls() {
@@ -2435,6 +2438,7 @@ function setView(v, scroll = true) {
     if (S.ready) markChatRead();
   }
   pinChat();
+  fabHiddenByScroll = false;
   if (scroll && v !== 'chat') scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' });
   updateFab();
 }
@@ -2493,14 +2497,25 @@ function updateFab() {
       return fabOverlapsControl();
     },
   });
-  // Давхарлал + товчийг нуухгүй: энэ товч л орлого, зарлага нээж өгнө.
   fab.classList.toggle('hide', decision.hidden);
   fab.style.bottom = decision.hidden || !decision.lift ? '' : `${base + decision.lift}px`;
+}
+
+// Нэг маягт: нүүр дээр шууд, бусад цонхноос + дарахад доод цонхонд.
+function placeQuick(where) {
+  const form = $('#tx-form');
+  const home = $('#quick-home');
+  const slot = $('#tx-sheet-slot');
+  if (!form || !home || !slot) return;
+  const target = where === 'sheet' ? slot : home;
+  if (form.parentElement !== target) target.appendChild(form);
+  home.hidden = where === 'sheet';
 }
 
 function openTxSheet() {
   const sheet = $('#tx-sheet');
   if (!sheet) return;
+  placeQuick('sheet');
   if (!sheet.open) sheet.showModal();
   const form = $('#tx-form');
   if (form) { form.scrollTop = 0; form.scrollLeft = 0; }
@@ -2511,7 +2526,10 @@ function openTxSheet() {
 function closeTxSheet() {
   const sheet = $('#tx-sheet');
   if (sheet?.open) sheet.close();
-  updateFab();
+  else {
+    placeQuick('home');
+    updateFab();
+  }
 }
 
 function wireGlobal() {

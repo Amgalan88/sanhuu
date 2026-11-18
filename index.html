@@ -83,6 +83,34 @@
       </div>
     </div>
 
+    <!-- Шууд нэмэх: + дарахгүй. Цонх нээгдэхэд энэ маягт тэнд очно. -->
+    <section class="quick-card" id="quick-home" aria-label="Гүйлгээ нэмэх">
+      <h2 class="quick-title">Гүйлгээ нэмэх</h2>
+      <form id="tx-form" novalidate>
+        <div class="quick" id="quick" aria-label="Хурдан бүртгэл">
+          <div class="seg kind" role="group" aria-label="Төрөл">
+            <button type="button" data-kind="expense">➖ Зарлага</button>
+            <button type="button" data-kind="income">➕ Орлого</button>
+          </div>
+          <label class="amount-wrap">
+            <span id="amount-sign" class="sign neg" aria-hidden="true">−</span>
+            <input id="amount" inputmode="numeric" autocomplete="off" placeholder="0" enterkeyhint="done" aria-label="Дүн">
+            <span class="cur">₮</span>
+          </label>
+          <div class="chips" id="chips"></div>
+          <div class="cats" id="cats" role="group" aria-label="Ангилал"></div>
+          <div class="accs" id="accs" role="group" aria-label="Аль данснаас"></div>
+          <input class="quick-note" id="note" type="text" maxlength="200" placeholder="📝 Тайлбар (заавал биш)" enterkeyhint="done" autocomplete="off" aria-label="Тайлбар">
+          <button type="button" id="extra-toggle" class="extra-toggle"></button>
+          <div class="extra" hidden>
+            <input id="date" type="date" aria-label="Огноо">
+          </div>
+          <p id="preview" class="preview" aria-live="polite"></p>
+          <button type="submit" id="save" class="save"></button>
+        </div>
+      </form>
+    </section>
+
     <div id="yt-stage" class="yt-stage" hidden>
       <div id="yt-frame" class="yt-frame"></div>
     </div>
@@ -159,35 +187,13 @@
 
     <button type="button" id="fab" class="fab" aria-label="Гүйлгээ нэмэх">+</button>
 
-    <!-- Орлого / зарлага нэмэх -->
+    <!-- Гүйлгээний цонх: нүүр дээрх маягт нээгдэхэд энд орно. -->
     <dialog id="tx-sheet" class="sheet" aria-labelledby="tx-sheet-title">
-      <form id="tx-form" novalidate>
-        <div class="sheet-head">
-          <h2 id="tx-sheet-title">Гүйлгээ нэмэх</h2>
-          <button type="button" class="icon-x" data-close aria-label="Хаах">✕</button>
-        </div>
-        <div class="quick" id="quick" aria-label="Хурдан бүртгэл">
-          <div class="seg kind" role="group" aria-label="Төрөл">
-            <button type="button" data-kind="expense">➖ Зарлага</button>
-            <button type="button" data-kind="income">➕ Орлого</button>
-          </div>
-          <label class="amount-wrap">
-            <span id="amount-sign" class="sign neg" aria-hidden="true">−</span>
-            <input id="amount" inputmode="numeric" autocomplete="off" placeholder="0" enterkeyhint="done" aria-label="Дүн">
-            <span class="cur">₮</span>
-          </label>
-          <div class="chips" id="chips"></div>
-          <div class="cats" id="cats" role="group" aria-label="Ангилал"></div>
-          <div class="accs" id="accs" role="group" aria-label="Аль данснаас"></div>
-          <button type="button" id="extra-toggle" class="extra-toggle"></button>
-          <div class="extra" hidden>
-            <input id="note" type="text" maxlength="200" placeholder="📝 Тайлбар (заавал биш)" enterkeyhint="done" autocomplete="off">
-            <input id="date" type="date" aria-label="Огноо">
-          </div>
-          <p id="preview" class="preview" aria-live="polite"></p>
-          <button type="submit" id="save" class="save"></button>
-        </div>
-      </form>
+      <div class="sheet-head">
+        <h2 id="tx-sheet-title">Гүйлгээ нэмэх</h2>
+        <button type="button" class="icon-x" data-close aria-label="Хаах">✕</button>
+      </div>
+      <div id="tx-sheet-slot"></div>
     </dialog>
 
 
