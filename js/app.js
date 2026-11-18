@@ -26,6 +26,7 @@ import {
 import { customLink, setCustomLink, parseYouTube } from './youtube.js';
 import { cleanBody, unreadCount, readCursor, clockTime, dayHeading } from './chat.js';
 import { authGate, householdNameError, personNameError, inviteCodeError } from './household.js';
+import { resolveFab } from './fab.js';
 import {
   clearChallenge, detectSmsDevice, formatCountdown, loadChallenge, normalizeMnPhone, passwordError,
   renderAuthTabs, renderPhoneLogin, renderPhonePassword, renderPhoneStart, renderPhoneVerify,
@@ -2478,10 +2479,23 @@ function fabOverlapsControl() {
 }
 
 function updateFab() {
-  const sheetOpen = $('#tx-sheet')?.open;
-  // Чат, Бусад дээр бүртгэл нэмэхгүй. Доош гүйлгэхэд, эсвэл товч дээр давхарлавал нуугдана.
-  const hide = fabHiddenByScroll || sheetOpen || fabOverlapsControl() || S.view === 'more' || S.view === 'chat';
-  $('#fab').classList.toggle('hide', hide);
+  const fab = $('#fab');
+  if (!fab) return;
+  // Inline bottom-ыг цэвэрлэж, media query-ийн анхны байрыг (утас 82px, өргөн дэлгэц 28px) уншина.
+  fab.style.bottom = '';
+  const base = parseFloat(getComputedStyle(fab).bottom) || 82;
+  const decision = resolveFab({
+    view: S.view,
+    sheetOpen: !!$('#tx-sheet')?.open,
+    hiddenByScroll: fabHiddenByScroll,
+    overlapsAt(lift) {
+      fab.style.bottom = lift ? `${base + lift}px` : '';
+      return fabOverlapsControl();
+    },
+  });
+  // Давхарлал + товчийг нуухгүй: энэ товч л орлого, зарлага нээж өгнө.
+  fab.classList.toggle('hide', decision.hidden);
+  fab.style.bottom = decision.hidden || !decision.lift ? '' : `${base + decision.lift}px`;
 }
 
 function openTxSheet() {
@@ -2505,6 +2519,7 @@ function wireGlobal() {
   wireChat();
   addEventListener('hashchange', () => setView(location.hash.slice(1) || 'home', false));
   $('#fab').addEventListener('click', openTxSheet);
+  addEventListener('resize', () => updateFab(), { passive: true });
   let lastScrollY = 0;
   addEventListener('scroll', () => {
     const y = window.scrollY;
