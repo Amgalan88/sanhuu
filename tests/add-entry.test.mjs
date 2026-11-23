@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveFab } from '../js/fab.js';
@@ -43,6 +43,7 @@ test('logged-in household owner sees the inline add form on Home and saves throu
 
   const leaked = [];
   const pageErrors = [];
+  const cspErrors = [];
   const server = await startServer();
   const browser = await puppeteer.launch({
     executablePath: chrome,
@@ -52,6 +53,10 @@ test('logged-in household owner sees the inline add form on Home and saves throu
   try {
     const page = await browser.newPage();
     page.on('pageerror', (err) => pageErrors.push(err.message));
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (/Content Security Policy|Refused to/i.test(text)) cspErrors.push(text);
+    });
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       const url = req.url();
@@ -137,6 +142,7 @@ test('logged-in household owner sees the inline add form on Home and saves throu
 
     assert.deepEqual(leaked, []);
     assert.deepEqual(pageErrors, []);
+    assert.deepEqual(cspErrors, []);
   } finally {
     await browser.close();
     await server.close();
@@ -235,7 +241,21 @@ const TYPES = {
   '.json': 'application/json',
 };
 
+function securityHeaders() {
+  const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8'));
+  const headers = {};
+  for (const header of config.headers[0].headers) {
+    let value = header.value;
+    // The production header upgrades http to https. This local server is http.
+    if (header.key === 'Content-Security-Policy') value = value.replace('; upgrade-insecure-requests', '');
+    if (header.key === 'Strict-Transport-Security') continue;
+    headers[header.key] = value;
+  }
+  return headers;
+}
+
 function startServer() {
+  const headers = securityHeaders();
   const server = createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     let path = decodeURIComponent(url.pathname);
@@ -246,7 +266,11 @@ function startServer() {
       res.end();
       return;
     }
-    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    res.writeHead(200, {
+      'Content-Type': TYPES[extname(file)] || 'application/octet-stream',
+      'Cache-Control': 'no-store',
+      ...headers,
+    });
     createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => {

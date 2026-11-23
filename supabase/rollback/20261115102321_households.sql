@@ -1,9 +1,10 @@
 -- ============================================================
--- 20261115121500_households.sql-ийн буцаалт.
+-- 20261115102321_households.sql-ийн буцаалт.
+-- Файл прод дээрх version-той таарна (хуучин репо нэр: 20261115121500).
 --
 -- supabase/migrations дотор БИШ — db push үүнийг ажиллуулахгүй.
 -- Гар ажиллагаа, нэг гүйлгээнд:
---   psql -v ON_ERROR_STOP=1 -f supabase/rollback/20261115121500_households.sql
+--   psql -v ON_ERROR_STOP=1 -f supabase/rollback/20261115102321_households.sql
 --
 -- Юу сэргээх вэ:
 --   мөнгөний хүснэгтийн RLS → is_admin() (security_advisor_fixes-ийн дараах хэлбэр)

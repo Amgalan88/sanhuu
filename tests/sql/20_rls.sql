@@ -1,4 +1,4 @@
--- Local-DB proof, after 20261115121500_households.sql.
+-- Local-DB proof, after 20261115102321_households.sql.
 -- (a) household 1 cannot read or write household 2
 -- (b) a user with no household sees nothing and cannot write
 -- (c) seeded family values are unchanged and attached to «Манай өрх»
