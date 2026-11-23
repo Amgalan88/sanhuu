@@ -1,9 +1,10 @@
 -- ============================================================
--- 20261115190000_phone_auth.sql-ийн буцаалт.
+-- 20261115105823_phone_auth.sql-ийн буцаалт.
+-- Файл прод дээрх version-той таарна (хуучин репо нэр: 20261115190000).
 --
 -- supabase/migrations дотор БИШ — db push үүнийг ажиллуулахгүй.
 -- Гар ажиллагаа, нэг гүйлгээнд:
---   psql -v ON_ERROR_STOP=1 -f supabase/rollback/20261115190000_phone_auth.sql
+--   psql -v ON_ERROR_STOP=1 -f supabase/rollback/20261115105823_phone_auth.sql
 --
 -- Юу устах вэ: private.phone_auth_challenges болон phone_auth_* RPC.
 -- Юу үлдэх вэ: auth.users (утасны бүртгэл, нууц үг). Буцаалтын дараа

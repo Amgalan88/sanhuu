@@ -6,13 +6,33 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       # ubuntu-latest has Chrome. The add-entry test opens a mocked household with it.
+      # PGHOST is the local service container, never the hosted Supabase project.
       - run: npm test
         env:
           CHROME_PATH: /usr/bin/google-chrome
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
