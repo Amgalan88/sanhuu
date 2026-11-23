@@ -215,6 +215,32 @@ h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 18px 0 10px
   font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: 0.16em;
   font-weight: 800; margin: 12px 0; text-align: center;
 }
+.steps {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  list-style: none; padding: 0; margin: 0 0 14px;
+}
+.steps li {
+  display: grid; justify-items: center; gap: 4px;
+  font-size: 12px; font-weight: 700; color: var(--muted);
+}
+.steps li span {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 2px solid var(--border); background: var(--surface-2);
+}
+.steps li.on { color: var(--text); }
+.steps li.on span, .steps li.done span {
+  background: var(--gold-fill); border-color: transparent; color: #1a1a1a;
+}
+.goal-form { display: grid; gap: 8px; margin: 4px 0 12px; }
+.goal-form .field { text-align: right; font-variant-numeric: tabular-nums; }
+.home-empty-body {
+  display: grid; justify-items: center; text-align: center; gap: 6px;
+  padding: 12px 8px 4px;
+}
+.home-empty-body > span { font-size: 40px; }
+.home-empty-body b { font-size: 17px; }
+.home-empty-body p { margin: 0; color: var(--muted); font-size: 14px; max-width: 320px; }
 .demo-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .demo-pick button {
   display: grid; gap: 4px; place-items: center; padding: 18px 8px; border-radius: 20px;
@@ -995,7 +1021,7 @@ canvas.backdrop { position: fixed; inset: 0; width: 100%; height: 100%; z-index:
    ============================================================ */
 .card { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 4px 2px; }
 .quick, #tasks { border: 0; padding: 4px 2px; }
-/* Нүүр: маягт толгой ба видеоны хооронд, эхний дэлгэцэд багтана. Хурдан дүнгийн товч цонхонд үлдэнэ. */
+/* Нүүр: гүйлгээ нэмэх маягт эхний дэлгэцэд. Видео нүүр дээр харагдахгүй. */
 .quick-card {
   box-sizing: border-box; width: 100%; max-width: 1120px; margin: 0 auto; padding: 6px 16px 2px;
 }
@@ -1068,6 +1094,7 @@ body[data-view="home"] main { padding-bottom: calc(96px + env(safe-area-inset-bo
   box-sizing: border-box; width: 100%; max-width: 1120px; margin: 0 auto; padding: 12px 16px 0;
 }
 .yt-stage[hidden] { display: none; }
+body[data-view="home"] #yt-stage { display: none !important; }
 .yt-frame {
   position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden;
   background: #050c24; box-shadow: 0 8px 28px rgba(4, 10, 30, .18);

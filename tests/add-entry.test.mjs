@@ -96,6 +96,11 @@ test('logged-in household owner sees the inline add form on Home and saves throu
     assert.equal(home.saveInForm, true, 'save button is missing');
     assert.ok(home.catCount >= 4, 'categories are missing');
     assert.equal(home.fabHide, true, 'add button still covers Home');
+    assert.equal(home.emptyHidden, true, 'empty state replaced the family household');
+    assert.equal(home.goal, '4000000', 'monthly goal did not come from the household row');
+    assert.match(home.overview, /2,048,500/, 'family balances are missing');
+    assert.match(home.who, /Энх-Амгалан/);
+    assert.equal(home.ytHidden, true, 'YouTube block is still on Home');
 
     await page.click('#quick [data-kind="income"]');
     assert.equal(await page.$eval('#quick [data-kind="income"]', (el) => el.getAttribute('aria-pressed')), 'true');
@@ -186,6 +191,13 @@ function homeFormState(page) {
       catCount: document.querySelectorAll('#cats [data-cat]').length,
       fabHide: !!fab?.classList.contains('hide'),
       vh: window.innerHeight,
+      emptyHidden: !!document.querySelector('#home-empty')?.hidden,
+      goal: document.querySelector('[data-goal]')?.dataset.goal || '',
+      overview: document.querySelector('#overview')?.textContent || '',
+      ytHidden: (() => {
+        const el = document.querySelector('#yt-stage');
+        return !el || el.hidden || getComputedStyle(el).display === 'none';
+      })(),
     };
   });
 }
@@ -269,7 +281,7 @@ function mockSupabaseModule() {
   ];
   const tables = {
     household_members: members,
-    households: [{ id: HH, name: 'Манай өрх' }],
+    households: [{ id: HH, name: 'Манай өрх', monthly_target: 4000000 }],
     incomes: [
       row('income', `${month}-10`, 2200000, USER, '11111111-1111-4111-8111-111111111111'),
       row('income', `${month}-11`, 1800000, PARTNER, '11111111-1111-4111-8111-111111111112'),

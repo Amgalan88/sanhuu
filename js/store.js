@@ -27,6 +27,10 @@ const nowISO = () => new Date().toISOString();
 const PUSH_VERB = { add: 'нэмлээ', delete: 'устгалаа', undo: 'буцаалаа', restore: 'сэргээлээ', done: 'байршууллаа', edit: 'өөрчиллөө' };
 const typeText = (t) => `⚙️ Орлогын төрөл: ${sourceOf(t.key).emoji} ${sourceOf(t.key).name} → ${t.emoji} ${t.name} · ${allocLabel(t.alloc)}`;
 const missingTable = (error) => error?.code === 'PGRST205' || error?.code === '42P01';
+const missingGoalColumn = (error) => {
+  const msg = `${error?.message || ''} ${error?.details || ''}`;
+  return error?.code === '42703' || error?.code === 'PGRST204' || /monthly_target/.test(msg);
+};
 
 export function uuid() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -229,13 +233,39 @@ export class SupabaseStore {
     this.admins = members;
     this.me = members.find((a) => a.user_id === this.userId) || null;
 
-    const { data: household, error: householdError } = await this.sb.from('households')
+    this.household = await this.#loadHousehold();
+    return this.me;
+  }
+
+  // monthly_target байхгүй (миграци хараахан ороогүй) бол нэрээ уншаад зорилтыг хоосон үлдээнэ.
+  // Апп тэгвэл шинэ өрхийн анхны зорилтыг ашиглана — одоогийн өрхийн 4 саятай адил харагдана.
+  async #loadHousehold() {
+    const first = await this.sb.from('households')
+      .select('id, name, monthly_target')
+      .eq('id', this.householdId)
+      .maybeSingle();
+    if (!first.error) return first.data;
+    if (!missingGoalColumn(first.error)) throw first.error;
+    const again = await this.sb.from('households')
       .select('id, name')
       .eq('id', this.householdId)
       .maybeSingle();
-    if (householdError) throw householdError;
-    this.household = household;
-    return this.me;
+    if (again.error) throw again.error;
+    return again.data ? { ...again.data, monthly_target: null } : null;
+  }
+
+  async saveHouseholdSettings({ monthlyTarget }) {
+    this.#requireHousehold();
+    const target = Math.trunc(Number(monthlyTarget));
+    if (!Number.isInteger(target) || target < 100_000 || target > 999_999_999) {
+      throw new Error('Сарын зорилт 100,000–999,999,999₮ байна');
+    }
+    const { error } = await this.sb.from('households')
+      .update({ monthly_target: target })
+      .eq('id', this.householdId);
+    if (error) throw new Error(missingGoalColumn(error) ? 'Сарын зорилтыг хадгалах боломжгүй байна' : rpcMessage(error));
+    this.household = { ...this.household, monthly_target: target };
+    return this.household;
   }
 
   async #loadAdmins() {
@@ -587,11 +617,11 @@ const ME_KEY = 'bidnii-sanhuu-demo-me';
 export class LocalStore {
   mode = 'demo';
   needsHousehold = false;
-  householdId = 'demo-household';
-  household = { id: 'demo-household', name: 'Манай өрх' };
+  householdId = 'local-household';
+  household = { id: 'local-household', name: 'Туршилтын өрх', monthly_target: 4_000_000 };
   base = [
-    { user_id: 'demo-enkh', name: 'Энх-Амгалан', emoji: '👨' },
-    { user_id: 'demo-tsetsgee', name: 'Цэцгээ', emoji: '👩' },
+    { user_id: 'local-a', name: 'Гишүүн', emoji: '🙂', role: 'owner' },
+    { user_id: 'local-b', name: 'Гишүүн 2', emoji: '🙂', role: 'member' },
   ];
   admins = [];
   me = null;
@@ -633,6 +663,15 @@ export class LocalStore {
   async signOut() {
     this.me = null;
     try { localStorage.removeItem(ME_KEY); } catch { /* ignore */ }
+  }
+
+  async saveHouseholdSettings({ monthlyTarget }) {
+    const target = Math.trunc(Number(monthlyTarget));
+    if (!Number.isInteger(target) || target < 100_000 || target > 999_999_999) {
+      throw new Error('Сарын зорилт 100,000–999,999,999₮ байна');
+    }
+    this.household = { ...this.household, monthly_target: target };
+    return this.household;
   }
 
   async loadAll() {

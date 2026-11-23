@@ -300,6 +300,17 @@ test('describe: хуримтлалын данснаас гаргасан зар�
 // ---------- Орлогын төрлийн тохиргоо ----------
 import { cleanAlloc, splitByPct, applyIncomeTypes, sourceOf as srcOf, allocLabel } from '../js/finance.js';
 
+test('allocate uses the household target when one is passed, and 4 million when it is not', () => {
+  const custom = allocate(3_600_000, 3_000_000);
+  assert.equal(custom.excess, 600_000);
+  assert.equal(custom.household, 1_800_000);
+  assert.equal(custom.goal, 900_000);
+  assert.equal(custom.risk, 900_000);
+  const standard = allocate(3_600_000);
+  assert.equal(standard.excess, 0);
+  assert.equal(standard.total, 3_600_000);
+});
+
 test('cleanAlloc: нийлбэр 100, бүхэл, 0–100 байх ёстой', () => {
   assert.deepEqual(cleanAlloc({ household: 0, goal: 50, risk: 50 }), { household: 0, goal: 50, risk: 50 });
   // хуучин хадгаламж/аяллын хувь зорилтот руу нэгдэнэ
