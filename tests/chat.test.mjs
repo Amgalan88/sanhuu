@@ -36,14 +36,14 @@ test('демо чат: хоёр хүн харилцан мессеж харна'
     removeItem: (k) => mem.delete(k),
   };
   const a = new LocalStore();
-  await a.signIn({ userId: 'demo-enkh' });
+  await a.signIn({ userId: 'local-a' });
   const row = await a.sendMessage('  сайн уу  ');
   assert.equal(row.body, 'сайн уу');
-  assert.equal(row.created_by, 'demo-enkh');
+  assert.equal(row.created_by, 'local-a');
   await a.markChatRead(row.created_at);
 
   const b = new LocalStore();
-  await b.signIn({ userId: 'demo-tsetsgee' });
+  await b.signIn({ userId: 'local-b' });
   const data = await b.loadAll();
   assert.equal(data.messages.length, 1);
   assert.equal(data.messages[0].body, 'сайн уу');

@@ -1,4 +1,4 @@
--- After supabase/rollback/20261115121500_households.sql.
+-- After supabase/rollback/20261115102321_households.sql.
 -- Family fixture values are still there. is_admin policies are back.
 -- Users who are not in admins see nothing.
 

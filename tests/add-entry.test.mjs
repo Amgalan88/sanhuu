@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveFab } from '../js/fab.js';
@@ -43,6 +43,7 @@ test('logged-in household owner sees the inline add form on Home and saves throu
 
   const leaked = [];
   const pageErrors = [];
+  const cspErrors = [];
   const server = await startServer();
   const browser = await puppeteer.launch({
     executablePath: chrome,
@@ -52,6 +53,10 @@ test('logged-in household owner sees the inline add form on Home and saves throu
   try {
     const page = await browser.newPage();
     page.on('pageerror', (err) => pageErrors.push(err.message));
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (/Content Security Policy|Refused to/i.test(text)) cspErrors.push(text);
+    });
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       const url = req.url();
@@ -96,6 +101,11 @@ test('logged-in household owner sees the inline add form on Home and saves throu
     assert.equal(home.saveInForm, true, 'save button is missing');
     assert.ok(home.catCount >= 4, 'categories are missing');
     assert.equal(home.fabHide, true, 'add button still covers Home');
+    assert.equal(home.emptyHidden, true, 'empty state replaced the family household');
+    assert.equal(home.goal, '4000000', 'monthly goal did not come from the household row');
+    assert.match(home.overview, /2,048,500/, 'family balances are missing');
+    assert.match(home.who, /Энх-Амгалан/);
+    assert.equal(home.ytHidden, true, 'YouTube block is still on Home');
 
     await page.click('#quick [data-kind="income"]');
     assert.equal(await page.$eval('#quick [data-kind="income"]', (el) => el.getAttribute('aria-pressed')), 'true');
@@ -137,6 +147,7 @@ test('logged-in household owner sees the inline add form on Home and saves throu
 
     assert.deepEqual(leaked, []);
     assert.deepEqual(pageErrors, []);
+    assert.deepEqual(cspErrors, []);
   } finally {
     await browser.close();
     await server.close();
@@ -186,6 +197,13 @@ function homeFormState(page) {
       catCount: document.querySelectorAll('#cats [data-cat]').length,
       fabHide: !!fab?.classList.contains('hide'),
       vh: window.innerHeight,
+      emptyHidden: !!document.querySelector('#home-empty')?.hidden,
+      goal: document.querySelector('[data-goal]')?.dataset.goal || '',
+      overview: document.querySelector('#overview')?.textContent || '',
+      ytHidden: (() => {
+        const el = document.querySelector('#yt-stage');
+        return !el || el.hidden || getComputedStyle(el).display === 'none';
+      })(),
     };
   });
 }
@@ -235,7 +253,21 @@ const TYPES = {
   '.json': 'application/json',
 };
 
+function securityHeaders() {
+  const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8'));
+  const headers = {};
+  for (const header of config.headers[0].headers) {
+    let value = header.value;
+    // The production header upgrades http to https. This local server is http.
+    if (header.key === 'Content-Security-Policy') value = value.replace('; upgrade-insecure-requests', '');
+    if (header.key === 'Strict-Transport-Security') continue;
+    headers[header.key] = value;
+  }
+  return headers;
+}
+
 function startServer() {
+  const headers = securityHeaders();
   const server = createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     let path = decodeURIComponent(url.pathname);
@@ -246,7 +278,11 @@ function startServer() {
       res.end();
       return;
     }
-    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    res.writeHead(200, {
+      'Content-Type': TYPES[extname(file)] || 'application/octet-stream',
+      'Cache-Control': 'no-store',
+      ...headers,
+    });
     createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => {
@@ -269,7 +305,7 @@ function mockSupabaseModule() {
   ];
   const tables = {
     household_members: members,
-    households: [{ id: HH, name: 'Манай өрх' }],
+    households: [{ id: HH, name: 'Манай өрх', monthly_target: 4000000 }],
     incomes: [
       row('income', `${month}-10`, 2200000, USER, '11111111-1111-4111-8111-111111111111'),
       row('income', `${month}-11`, 1800000, PARTNER, '11111111-1111-4111-8111-111111111112'),
