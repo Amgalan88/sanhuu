@@ -388,6 +388,10 @@ allow_dynamic_registration = false
 [functions.phone-auth]
 verify_jwt = false
 
+# Данс устгах. Платформ JWT шалгана, функц дотор getUser-ээр давтан шалгана.
+[functions.delete-account]
+verify_jwt = true
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.

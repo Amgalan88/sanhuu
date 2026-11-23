@@ -113,6 +113,33 @@ npx supabase functions deploy phone-auth --no-verify-jwt --project-ref evtawdwjl
 `db push` функцийг байршуулахгүй. Verify.MN дансанд API key авч, callback-д зориулж
 функцийн нийтийн https хаяг хангалттай (туннель, IP allowlist шаардлагагүй).
 
+### Нууцлал, хуулга, данс устгах
+
+Нэвтрэхгүйгээр нээгдэнэ: [privacy.html](privacy.html), [terms.html](terms.html).
+Эзний нэр, имэйл, утас, огноог [js/legal-config.js](js/legal-config.js) дээр нэг дор бөглөнө.
+`showDraftBanner: false` болтол хуудсан дээр «Ноорог — хуульчаар хянуулаагүй» гарч байна.
+
+Бүртгэл зөвшөөрлийн чекбоксгүйгээр үүсэхгүй. Цаг, бодлогын хувилбар `consents` хүснэгтэд
+хадгалагдана. Хэрэглэгч зөвхөн өөрийн мөрийг харна.
+
+«Мэдээлэл татах» өрхийн орлого, зарлага, шилжүүлэг, зорилт, өрх, гишүүдийг JSON, CSV болгож
+хөтөч дээр татна. Серверт шинэ хуулга үүсгэхгүй.
+
+«Данс устгах» `УСТГАХ` гэж бичүүлж баталгаажуулна. Функц JWT шалгаад хүнийг өрхөөс хасна.
+Сүүлийн гишүүн бол өрхийн мэдээллийг устгана. Өөр гишүүн үлдвэл өрхийн мөнгө үлдэнэ.
+
+Миграци болон функцийг прод руу **явуулаагүй**. Эзэн зөвшөөрсний дараа, хуучин миграцийг
+дахин ажиллуулахгүйгээр:
+
+1. SQL Editor дээр зөвхөн [supabase/migrations/20261123153000_legal_consents.sql](supabase/migrations/20261123153000_legal_consents.sql).
+2. Функц:
+
+```bash
+npx supabase functions deploy delete-account --project-ref evtawdwjlwniwjjimkfh
+```
+
+`--no-verify-jwt` бүү нэм. Дэлгэрэнгүй: [supabase/functions/delete-account/README.md](supabase/functions/delete-account/README.md).
+
 ### Прод дээрх түүх (дахин бүү ажиллуул)
 
 Прод (`evtawdwjlwniwjjimkfh`) дээр схем гараар бүтсэн. `supabase_migrations.schema_migrations`

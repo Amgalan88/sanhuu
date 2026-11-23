@@ -18,6 +18,8 @@ import { normalizeMnPhone, phoneAuthError } from './phone-auth.js';
 import {
   householdNameError, personNameError, inviteCodeError, normalizeInviteCode, rpcMessage,
 } from './household.js';
+import { consentRecord } from './consent.js';
+import { buildHouseholdExport } from './export.js';
 
 const TABLE = { income: 'incomes', expense: 'expenses', achievement: 'achievements' };
 const BUCKET = 'achievements'; // амжилтын зураг: <user_id>/<id>.jpg, профайл: avatars/<user_id>-<ts>.jpg
@@ -125,8 +127,14 @@ export class SupabaseStore {
       : error.message);
   }
 
-  async signUp({ email, password }) {
-    const { data, error } = await this.sb.auth.signUp({ email, password });
+  async signUp({ email, password, consent }) {
+    const options = consent?.version ? {
+      data: {
+        consent_version: consent.version,
+        consent_accepted_at: consent.acceptedAt,
+      },
+    } : undefined;
+    const { data, error } = await this.sb.auth.signUp({ email, password, options });
     if (error) {
       const known = {
         'User already registered': 'Энэ имэйл аль хэдийн бүртгэлтэй байна',
@@ -137,7 +145,93 @@ export class SupabaseStore {
     }
     this.pendingConfirmation = !data.session;
     if (!data.session) return null;
-    return this.#loadMe(data.user.id);
+    const me = await this.#loadMe(data.user.id);
+    if (consent?.version) {
+      try { await this.recordConsent(consent); }
+      catch (err) { if (!missingTable(err)) console.warn('consent', err); }
+    }
+    return me;
+  }
+
+  async recordConsent(consent) {
+    const row = consentRecord({
+      userId: this.userId,
+      version: consent?.version,
+      acceptedAt: consent?.acceptedAt,
+    });
+    const { error } = await this.sb.from('consents').insert(row);
+    if (error && error.code !== '23505') throw error;
+    return row;
+  }
+
+  async acceptConsent(consent) {
+    const { error } = await this.sb.auth.updateUser({
+      data: {
+        consent_version: consent.version,
+        consent_accepted_at: consent.acceptedAt,
+      },
+    });
+    if (error) throw new Error(error.message);
+    return this.recordConsent(consent);
+  }
+
+  // Имэйл баталгаажуулалт дараа нь нэвтэрсэн бол metadata дээрх зөвшөөрлийг хүснэгтэд бичнэ.
+  async ensureStoredConsent() {
+    try {
+      if (!this.sb?.auth?.getUser || !this.userId) return;
+      const key = `bidnii-sanhuu-consent:${this.userId}`;
+      try { if (localStorage.getItem(key) === '1') return; } catch { /* ignore */ }
+      const { data, error } = await this.sb.auth.getUser();
+      if (error || !data?.user) return;
+      const meta = data.user.user_metadata || {};
+      if (!meta.consent_version || !meta.consent_accepted_at) {
+        try { localStorage.setItem(key, '1'); } catch { /* ignore */ }
+        return;
+      }
+      await this.recordConsent({ version: meta.consent_version, acceptedAt: meta.consent_accepted_at });
+      try { localStorage.setItem(key, '1'); } catch { /* ignore */ }
+    } catch (err) {
+      if (!missingTable(err)) console.warn('consent', err);
+    }
+  }
+
+  async exportHousehold() {
+    this.#requireHousehold();
+    const data = await this.loadAll();
+    return this.#bundle(data);
+  }
+
+  #bundle(data) {
+    const hid = this.householdId;
+    const stamp = (rows) => (rows || []).map((row) => (row.household_id ? row : { ...row, household_id: hid }));
+    return buildHouseholdExport({
+      householdId: hid,
+      household: this.household,
+      members: stamp(this.admins),
+      incomes: stamp(data.incomes),
+      expenses: stamp(data.expenses),
+      transfers: stamp(data.transfers),
+    });
+  }
+
+  async deleteAccount() {
+    const { data } = await this.sb.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error('Нэвтрээгүй байна');
+    const { data: body, error } = await this.sb.functions.invoke('delete-account', {
+      body: {},
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (error || body?.error) {
+      let message = body?.error;
+      const ctx = error?.context;
+      if (!message && ctx && typeof ctx.json === 'function') {
+        try { message = (await ctx.json())?.error; } catch { /* хоосон хариу */ }
+      }
+      throw new Error(message || 'Данс устгаж чадсангүй');
+    }
+    await this.signOut();
+    return body;
   }
 
   async signOut() {
@@ -193,6 +287,7 @@ export class SupabaseStore {
   async #loadMe(userId) {
     this.userId = userId;
     this.pendingConfirmation = false;
+    await this.ensureStoredConsent();
     const member = await this.#loadMembership();
     if (!member) {
       this.me = null;
@@ -633,6 +728,42 @@ export class LocalStore {
   async signOut() {
     this.me = null;
     try { localStorage.removeItem(ME_KEY); } catch { /* ignore */ }
+  }
+
+  async acceptConsent(consent) {
+    if (!consent?.version || !consent?.acceptedAt) throw new Error('Зөвшөөрөл дутуу байна');
+    this.#mutate((db) => {
+      db.consents = db.consents || [];
+      db.consents.push(consentRecord({
+        userId: this.me.user_id,
+        version: consent.version,
+        acceptedAt: consent.acceptedAt,
+      }));
+    });
+  }
+
+  async exportHousehold() {
+    const data = await this.loadAll();
+    const hid = this.householdId;
+    const stamp = (rows) => (rows || []).map((row) => (row.household_id ? row : { ...row, household_id: hid }));
+    return buildHouseholdExport({
+      householdId: hid,
+      household: this.household,
+      members: stamp(this.admins),
+      incomes: stamp(data.incomes),
+      expenses: stamp(data.expenses),
+      transfers: stamp(data.transfers),
+    });
+  }
+
+  async deleteAccount() {
+    try {
+      localStorage.removeItem(DB_KEY);
+      localStorage.removeItem(ME_KEY);
+    } catch { /* ignore */ }
+    this.me = null;
+    this.admins = [];
+    return { ok: true, householdDeleted: true, demo: true };
   }
 
   async loadAll() {

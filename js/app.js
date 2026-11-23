@@ -26,6 +26,10 @@ import {
 import { customLink, setCustomLink, parseYouTube } from './youtube.js';
 import { cleanBody, unreadCount, readCursor, clockTime, dayHeading } from './chat.js';
 import { authGate, householdNameError, personNameError, inviteCodeError } from './household.js';
+import { LEGAL } from './legal-config.js';
+import { CONSENT_REQUIRED, consentCheckboxHtml, signupAllowed } from './consent.js';
+import { downloadFiles, exportFiles } from './export.js';
+import { canConfirmDelete, renderDataSettings } from './account.js';
 import { resolveFab } from './fab.js';
 import {
   clearChallenge, detectSmsDevice, formatCountdown, loadChallenge, normalizeMnPhone, passwordError,
@@ -135,6 +139,17 @@ async function boot() {
     if (isLocalPreview('phone-verify')) return showPhoneVerifyPreview();
     return showPhoneFlow('signup');
   }
+  if (isLocalPreview('email-signup')) {
+    S.store = previewStore();
+    return showSignup();
+  }
+  if (isLocalPreview('settings')) {
+    S.store = new LocalStore();
+    S.me = await S.store.signIn({ userId: 'demo-enkh' });
+    await enterApp();
+    setView('more', false);
+    return;
+  }
   S.store = SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStore();
   if (S.store.mode === 'supabase') S.store.onRecovery = () => showLogin('', 'recovery');
   try {
@@ -194,6 +209,8 @@ function previewPhoneStore() {
     },
     async createHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
     async joinHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
+    async acceptConsent() {},
+    async recordConsent() {},
   };
 }
 
@@ -204,6 +221,8 @@ function previewStore() {
     async signOut() {},
     async createHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
     async joinHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
+    async signUp() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
+    async acceptConsent() {},
   };
 }
 
@@ -454,6 +473,10 @@ function mountPhoneStart(purpose) {
   $('#phone-back').addEventListener('click', () => showLogin());
   $('#phone-start').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (purpose === 'signup' && !signupAllowed($('#consent')?.checked)) {
+      $('#login-error').textContent = CONSENT_REQUIRED;
+      return;
+    }
     const parsed = normalizeMnPhone($('#phone').value);
     $('#login-error').textContent = parsed.ok ? '' : parsed.error;
     if (!parsed.ok) return;
@@ -541,6 +564,10 @@ function mountPhonePassword(purpose, challengeId) {
   $('#login-body').innerHTML = renderPhonePassword({ purpose });
   $('#phone-password').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (purpose === 'signup' && !signupAllowed($('#consent')?.checked)) {
+      $('#login-error').textContent = CONSENT_REQUIRED;
+      return;
+    }
     const password = $('#new-password').value;
     const again = $('#new-password2').value;
     $('#login-error').textContent = passwordError(password) || (password !== again ? 'Нууц үг таарахгүй байна.' : '');
@@ -551,6 +578,13 @@ function mountPhonePassword(purpose, challengeId) {
     try {
       const done = await S.store.phoneAuth({ action: 'complete', challengeId, password });
       S.me = await S.store.signIn({ phone: done.phone, password });
+      if (purpose === 'signup') {
+        try {
+          await S.store.acceptConsent?.({ version: LEGAL.policyVersion, acceptedAt: new Date().toISOString() });
+        } catch (err) {
+          console.warn(err);
+        }
+      }
       openGate();
     } catch (err) {
       $('#login-error').textContent = err.message;
@@ -577,6 +611,7 @@ function showSignup() {
       <input class="field" id="signup-password" type="password" autocomplete="new-password" minlength="6" required>
       <label for="signup-password2">Нууц үг давтах</label>
       <input class="field" id="signup-password2" type="password" autocomplete="new-password" minlength="6" required>
+      ${consentCheckboxHtml()}
       <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Бүртгүүлэх</button>
       <button type="button" class="linkish" id="signup-phone">Утасаар бүртгүүлэх</button>
       <button type="button" class="linkish" id="signup-back">Нэвтрэх рүү буцах</button>
@@ -589,6 +624,7 @@ function showSignup() {
     const password = $('#signup-password').value;
     const again = $('#signup-password2').value;
     $('#login-error').textContent = '';
+    if (!signupAllowed($('#consent')?.checked)) { $('#login-error').textContent = CONSENT_REQUIRED; return; }
     if (!email.includes('@')) { $('#login-error').textContent = 'Имэйл хаягаа зөв оруулна уу.'; return; }
     if (password.length < 6) { $('#login-error').textContent = 'Нууц үг хамгийн багадаа 6 тэмдэгт байна.'; return; }
     if (password !== again) { $('#login-error').textContent = 'Нууц үг таарахгүй байна.'; return; }
@@ -596,7 +632,11 @@ function showSignup() {
     btn.disabled = true;
     btn.textContent = 'Түр хүлээнэ үү…';
     try {
-      S.me = await S.store.signUp({ email, password });
+      S.me = await S.store.signUp({
+        email,
+        password,
+        consent: { version: LEGAL.policyVersion, acceptedAt: new Date().toISOString() },
+      });
       if (S.store.pendingConfirmation) {
         showLogin();
         $('#login-error').textContent = 'Бүртгэл үүслээ. Имэйлээ баталгаажуулаад нэвтэрнэ үү.';
@@ -2063,6 +2103,8 @@ function wireIncomeTypes() {
 // ---------- Бусад ----------
 function renderMore() {
   const demo = S.store.mode === 'demo';
+  const dataCard = $('#data-card');
+  if (dataCard) dataCard.innerHTML = renderDataSettings({ demo });
   $('#profile').innerHTML = `
     <h2>👤 Профайл</h2>
     <div class="profile">
@@ -2623,6 +2665,17 @@ function wireGlobal() {
     if (e.target.closest('#push-test')) return pushAction(() => S.store.testPush(), '📨 Туршилтын мэдэгдэл илгээлээ');
     const rm = e.target.closest('#avatar-remove');
     if (rm) return armThen(rm, 'Арилгах уу?', () => changeAvatar(null));
+    if (e.target.closest('#export-data')) return exportMyData();
+    const deleteBtn = e.target.closest('#delete-account');
+    if (deleteBtn) {
+      const form = $('#delete-account-form');
+      if (form) {
+        form.hidden = false;
+        deleteBtn.hidden = true;
+        $('#delete-confirm')?.focus();
+      }
+      return;
+    }
     if (e.target.closest('#logout')) {
       await flushChatRead();
       await S.store.signOut();
@@ -2633,6 +2686,17 @@ function wireGlobal() {
     }
     if (e.target.closest('#invite-create')) return createInvite();
     if (e.target.closest('#invite-copy')) return copyInvite();
+  });
+
+  document.addEventListener('submit', (e) => {
+    if (e.target.id !== 'delete-account-form') return;
+    e.preventDefault();
+    confirmDeleteAccount();
+  });
+  document.addEventListener('input', (e) => {
+    if (e.target.id !== 'delete-confirm') return;
+    const btn = $('#delete-account-go');
+    if (btn) btn.disabled = !canConfirmDelete(e.target.value);
   });
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me) scheduleReload(100); });
@@ -2653,6 +2717,52 @@ function wireGlobal() {
       toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
     }
   });
+}
+
+async function exportMyData() {
+  const btn = $('#export-data');
+  if (btn) btn.disabled = true;
+  try {
+    const bundle = await S.store.exportHousehold();
+    downloadFiles(exportFiles(bundle));
+    toast('📥 JSON, CSV файл татагдлаа');
+  } catch (err) {
+    toast(`⚠️ Татаж чадсангүй: ${err.message}`, { kind: 'err', ms: 6000 });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function confirmDeleteAccount() {
+  const typed = $('#delete-confirm')?.value || '';
+  if (!canConfirmDelete(typed)) {
+    toast('Баталгаажуулахын тулд УСТГАХ гэж бичнэ үү.', { kind: 'err' });
+    return;
+  }
+  const btn = $('#delete-account-go');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Устгаж байна…';
+  }
+  try {
+    await S.store.deleteAccount();
+    S.me = null;
+    S.inviteCode = null;
+    S.ready = false;
+    showLogin();
+    const note = document.createElement('p');
+    note.className = 'login-note';
+    note.textContent = 'Данс устгагдлаа.';
+    $('#login-body')?.prepend(note);
+  } catch (err) {
+    toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
+    if (btn) {
+      btn.disabled = !canConfirmDelete($('#delete-confirm')?.value || '');
+      btn.textContent = 'Данс устгах';
+    }
+    const opener = $('#delete-account');
+    if (opener) opener.hidden = false;
+  }
 }
 
 // 2 шаттай баталгаажуулалт: эхний товшилт "зэвсэглэнэ", 4 секундэд дахин товшвол гүйцэтгэнэ.
