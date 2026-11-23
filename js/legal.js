@@ -7,7 +7,6 @@ const TOKENS = [
   ['[БҮС НУТАГ]', (config) => config.region],
   ['[ХУВЬ ХҮН/ААН-ИЙН НЭР]', (config) => config.controllerName],
   ['[И-МЭЙЛ]', (config) => config.email],
-  ['[УТАС]', (config) => config.phone],
   ['[ОГНОО]', (config) => config.effectiveDate],
   ['[30]', (config) => config.responseDays],
 ];

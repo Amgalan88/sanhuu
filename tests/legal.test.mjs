@@ -47,9 +47,10 @@ test('[mocked] consent row stores the user, time, and policy version', () => {
     version: LEGAL.policyVersion,
     acceptedAt: '2026-11-23T03:00:00.000Z',
   });
+  assert.equal(LEGAL.policyVersion, 'draft-2');
   assert.deepEqual(row, {
     user_id: 'user-1',
-    policy_version: 'draft-1',
+    policy_version: 'draft-2',
     accepted_at: '2026-11-23T03:00:00.000Z',
   });
   assert.throws(() => consentRecord({ userId: '', version: 'draft-1', acceptedAt: 't' }));
@@ -207,13 +208,13 @@ test('[mocked] delete-account rejects a missing or bad token', async () => {
   assert.equal(calls.some((call) => call.op === 'deleteUser' || call.op === 'deleteHousehold'), false);
 });
 
-test('[mocked] legal pages keep the draft, fill the region, and leave owner placeholders', () => {
+test('[mocked] legal pages name the individual, drop the phone, and leave the date open', () => {
   assert.equal(LEGAL.showDraftBanner, true);
-  assert.equal(LEGAL.controllerName, '[ХУВЬ ХҮН/ААН-ИЙН НЭР]');
-  assert.equal(LEGAL.email, '[И-МЭЙЛ]');
-  assert.equal(LEGAL.phone, '[УТАС]');
+  assert.equal(LEGAL.controllerName, 'Амгалан Эрдэнэбилэг (Amgalan Erdenebileg)');
+  assert.equal(LEGAL.email, 'erdenebilegamgalan@gmail.com');
+  assert.equal(Object.hasOwn(LEGAL, 'phone'), false);
   assert.equal(LEGAL.effectiveDate, '[ОГНОО]');
-  assert.equal(LEGAL.responseDays, '[30]');
+  assert.equal(LEGAL.responseDays, '30');
 
   const privacy = renderLegalDocument('privacy');
   const terms = renderLegalDocument('terms');
@@ -221,15 +222,30 @@ test('[mocked] legal pages keep the draft, fill the region, and leave owner plac
   assert.equal(terms.banner, 'Ноорог — хуульчаар хянуулаагүй');
   assert.match(privacy.text, /Япон \(Токио, ap-northeast-1\)/);
   assert.equal(privacy.text.includes('[БҮС НУТАГ]'), false);
-  assert.match(privacy.text, /\[ХУВЬ ХҮН\/ААН-ИЙН НЭР\]/);
-  assert.match(privacy.text, /\[И-МЭЙЛ\]/);
-  assert.match(privacy.text, /\[УТАС\]/);
-  assert.match(privacy.text, /\[ОГНОО\]/);
-  assert.match(privacy.text, /\[30\]/);
-  assert.match(privacy.html, /legal-ph/);
+  assert.match(privacy.text, /Мэдээлэл хариуцагч нь хувь хүн Амгалан Эрдэнэбилэг \(Amgalan Erdenebileg\)\. Холбоо барих и-мэйл: erdenebilegamgalan@gmail.com\./);
+  assert.match(terms.text, /хувь хүн Амгалан Эрдэнэбилэг \(Amgalan Erdenebileg\) \(цаашид «Бид»\) ажиллуулна/);
+  assert.match(terms.text, /И-мэйл: erdenebilegamgalan@gmail.com/);
+  for (const doc of [privacy, terms]) {
+    assert.equal(doc.text.includes('[ХУВЬ ХҮН/ААН-ИЙН НЭР]'), false);
+    assert.equal(doc.text.includes('[И-МЭЙЛ]'), false);
+    assert.equal(doc.text.includes('[УТАС]'), false);
+    assert.equal(doc.text.includes('ААН'), false);
+    assert.equal(doc.text.includes('[30]'), false);
+    assert.match(doc.text, /\[ОГНОО\]/);
+    assert.deepEqual(
+      [...doc.html.matchAll(/<mark class="legal-ph">([^<]*)<\/mark>/g)].map((mark) => mark[1]),
+      ['[ОГНОО]'],
+    );
+  }
+  assert.match(privacy.text, /30 хоногийн дотор хариу өгнө/);
+  assert.match(privacy.text, /30 хоногийн дотор бүрмөсөн устгагдана/);
+  assert.match(terms.text, /30 хоногийн өмнө мэдэгдэнэ/);
+  assert.match(terms.text, /30 хоногийн өмнө мэдэгдэж/);
   assert.match(terms.text, /60\/20\/20/);
-  assert.match(terms.text, /\[И-МЭЙЛ\]/);
+  assert.equal(PRIVACY_MD.includes('[УТАС]'), false);
+  assert.equal(TERMS_MD.includes('[УТАС]'), false);
   assert.match(PRIVACY_MD, /\[БҮС НУТАГ\]/);
+  assert.match(PRIVACY_MD, /хувь хүн/);
   assert.equal(applyLegalPlaceholders(TERMS_MD, { ...LEGAL, showDraftBanner: false }).includes('[ОГНОО]'), true);
   assert.equal(renderLegalDocument('privacy', { ...LEGAL, showDraftBanner: false }).banner, '');
 

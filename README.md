@@ -116,7 +116,7 @@ npx supabase functions deploy phone-auth --no-verify-jwt --project-ref evtawdwjl
 ### Нууцлал, хуулга, данс устгах
 
 Нэвтрэхгүйгээр нээгдэнэ: [privacy.html](privacy.html), [terms.html](terms.html).
-Эзний нэр, имэйл, утас, огноог [js/legal-config.js](js/legal-config.js) дээр нэг дор бөглөнө.
+Мэдээлэл хариуцагч нь хувь хүн. Нэр, и-мэйл [js/legal-config.js](js/legal-config.js) дээр бөглөгдсөн. Утас байхгүй. Хүчин төгөлдөр болох огноо `[ОГНОО]` хэвээр, тод тэмдэглэгээтэй. Хариу өгөх хугацаа 30 хоног.
 `showDraftBanner: false` болтол хуудсан дээр «Ноорог — хуульчаар хянуулаагүй» гарч байна.
 
 Бүртгэл зөвшөөрлийн чекбоксгүйгээр үүсэхгүй. Цаг, бодлогын хувилбар `consents` хүснэгтэд
