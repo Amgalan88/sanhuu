@@ -1,0 +1,78 @@
+# Migration history repair
+
+Production (`evtawdwjlwniwjjimkfh`) recorded three migrations under versions that did not match the filenames in git. This branch renames the repo files to the versions that are known. **Do not run the commands below until you approve them.** They are not run by CI, and this change does not connect to production.
+
+`migration repair` only inserts or deletes a row in `supabase_migrations.schema_migrations`. It does not run the SQL file.
+
+## What matches today
+
+| Migration | Production version | Repo file before this change | Repo file now |
+| --- | --- | --- | --- |
+| households | `20261115102321` | `20261115121500` | `20261115102321_households.sql` |
+| phone_auth | `20261115105823` | `20261115190000` | `20261115105823_phone_auth.sql` |
+| security_advisor_fixes | `20261114132003` | `20261114123000` | `20261114132003_security_advisor_fixes.sql` |
+| couple_chat | `20261031171342` | same | unchanged |
+| baseline | recorded only as "already applied" in the old README, not as a pushed file | `20261031170000` | unchanged |
+
+`security_advisor_fixes`: `migration list` on 2026-11-23 showed the production version `20261114132003`. The stored SQL has the same md5 as the repo file (`dcad08043eb1cde6f13fabfd8c586c8f`), so the file was renamed to that version. Step 3 below is done.
+
+The new file `20261123110000_phone_auth_search_path.sql` is **not** on production. Do not mark it applied with `migration repair`. Apply it only in the last step, after the history lines up.
+
+## 1. Look first
+
+From a checkout of this branch, after `npx supabase login`:
+
+```bash
+npx supabase link --project-ref evtawdwjlwniwjjimkfh
+npx supabase migration list --linked
+```
+
+Read the table. Do not run `db push` yet.
+
+If your CLI rejects `--linked` and still documents `--remote` (the flag used in the older README), use `--remote` in every repair command below. Same operation.
+
+## 2. Repair the rows that are already known
+
+Run these only if `migration list` still shows the old repo versions on the remote, or shows the production versions without a local file. Skip a command when that version is already in the state you want.
+
+Households and phone auth, after this branch is checked out (local filenames are the production versions):
+
+```bash
+npx supabase migration repair --status reverted 20261115121500 --linked
+npx supabase migration repair --status applied 20261115102321 --linked
+npx supabase migration repair --status reverted 20261115190000 --linked
+npx supabase migration repair --status applied 20261115105823 --linked
+```
+
+`reverted` deletes that version from the history table. `applied` inserts it. If the old version was never inserted, the `reverted` command reports that and changes nothing else. If the production version is already there, skip the matching `applied` command rather than inserting it twice.
+
+Baseline was hand-applied and must not be executed again (it deletes mock rows). If `20261031170000` is missing from the remote history:
+
+```bash
+npx supabase migration repair --status applied 20261031170000 --linked
+```
+
+`20261031171342` (`couple_chat`) is already the production version. Do not repair it and do not edit that file.
+
+## 3. security_advisor_fixes
+
+The file is already renamed to the production version `20261114132003`. Do not run its SQL again. If `20261114123000` is also in the remote history, remove that row. If `20261114132003` is already applied, skip the second command.
+
+```bash
+npx supabase migration repair --status reverted 20261114123000 --linked
+npx supabase migration repair --status applied 20261114132003 --linked
+```
+
+## 4. Apply only the new migration
+
+When `migration list` shows every older local file as applied on the remote, and the only missing remote version is `20261123110000`:
+
+```bash
+npx supabase db push --linked
+```
+
+That runs `20261123110000_phone_auth_search_path.sql` only. It locks `search_path` on the phone-auth helpers and the phone-auth security-definer functions. It does not rewrite household data.
+
+If `db push` wants to run baseline, households, phone auth, or security_advisor_fixes, stop. The history still does not match. Go back to steps 2 and 3. Do not push.
+
+`db push` does not deploy the `notify` or `phone-auth` edge functions.

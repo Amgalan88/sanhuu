@@ -5,7 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DB=sanhuu_household_test
-PSQL=(sudo -u postgres psql -v ON_ERROR_STOP=1)
+# shellcheck source=lib-local-pg.sh
+source "$(dirname "$0")/lib-local-pg.sh"
 
 "${PSQL[@]}" -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB}' AND pid <> pg_backend_pid();" >/dev/null
 "${PSQL[@]}" -d postgres -c "DROP DATABASE IF EXISTS ${DB};"
@@ -19,11 +20,11 @@ run() {
 run tests/sql/00_stub.sql
 run supabase/migrations/20261031170000_baseline.sql
 run supabase/migrations/20261031171342_couple_chat.sql
-run supabase/migrations/20261114123000_security_advisor_fixes.sql
+run supabase/migrations/20261114132003_security_advisor_fixes.sql
 run tests/sql/10_seed.sql
-run supabase/migrations/20261115121500_households.sql
+run supabase/migrations/20261115102321_households.sql
 run tests/sql/20_rls.sql
-run supabase/rollback/20261115121500_households.sql
+run supabase/rollback/20261115102321_households.sql
 run tests/sql/30_after_rollback.sql
 
 echo "household RLS + rollback: ok"

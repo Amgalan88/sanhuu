@@ -60,9 +60,10 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
    | --- | --- |
    | `20261031170000_baseline.sql` | `schema.sql` → `income-types.sql` хүртэл: хүснэгт, `is_admin()`, RLS, Realtime publication, хувийн storage bucket `achievements`. `profile.sql` доторх mock мөр устгах `DELETE` багтсан. |
    | `20261031171342_couple_chat.sql` | Чат (`messages`, `chat_reads`) ба Realtime. Version прод дээрх түүхтэй адил (`couple_chat`) — бүү солино. |
-   | `20261114123000_security_advisor_fixes.sql` | `is_admin` / `rls_auto_enable` дээрх илүү EXECUTE, `auth.uid()`-ийн RLS initplan, индексгүй foreign key. |
-   | `20261115121500_households.sql` | Олон өрх. Одоогийн `admins`-ийг «Манай өрх» болгож backfill хийнэ (дүн, тэмдэглэл өөрчлөгдөхгүй). Шинэ хэрэглэгч өөрийн өрхтэй. Буцаалт: [supabase/rollback/20261115121500_households.sql](supabase/rollback/20261115121500_households.sql) — `db push` үүнийг ажиллуулахгүй. |
-   | `20261115190000_phone_auth.sql` | Verify.MN-ийн түр session, `private.phone_auth_challenges`. Клиент хандахгүй. Буцаалт: [supabase/rollback/20261115190000_phone_auth.sql](supabase/rollback/20261115190000_phone_auth.sql) — `auth.users`-ийг устгахгүй. |
+   | `20261114132003_security_advisor_fixes.sql` | `is_admin` / `rls_auto_enable` дээрх илүү EXECUTE, `auth.uid()`-ийн RLS initplan, индексгүй foreign key. Файл прод дээрх version-той таарна (хуучин нэр `20261114123000`). Засвар: [docs/migration-repair.md](docs/migration-repair.md). |
+   | `20261115102321_households.sql` | Олон өрх. Одоогийн `admins`-ийг «Манай өрх» болгож backfill хийнэ (дүн, тэмдэглэл өөрчлөгдөхгүй). Шинэ хэрэглэгч өөрийн өрхтэй. Файл прод дээрх version-той таарна (хуучин нэр `20261115121500`). Буцаалт: [supabase/rollback/20261115102321_households.sql](supabase/rollback/20261115102321_households.sql) — `db push` үүнийг ажиллуулахгүй. |
+   | `20261115105823_phone_auth.sql` | Verify.MN-ийн түр session, `private.phone_auth_challenges`. Клиент хандахгүй. Файл прод дээрх version-той таарна (хуучин нэр `20261115190000`). Буцаалт: [supabase/rollback/20261115105823_phone_auth.sql](supabase/rollback/20261115105823_phone_auth.sql) — `auth.users`-ийг устгахгүй. |
+   | `20261123110000_phone_auth_search_path.sql` | `private.phone_auth_*` helper дээр `search_path` хоосон. Прод дээр хараахан хэрэглээгүй. |
 
    Хуучин файлууд (`schema.sql`, `achievements.sql`, `profile.sql`, `push.sql`, `transfers.sql`,
    `expense-accounts.sql`, `income-types.sql`, `chat.sql`) энэ түүхийн эх сурвалж. Шинэ төсөл дээр
@@ -100,7 +101,7 @@ Build алхам шаардлагагүй — энгийн HTML/CSS/JS (ES modul
 Шинэ хүн: утас → өөрөө 144773 руу SMS (150₮, үнэ товчноос өмнө харагдана) → нууц үг → өрх үүсгэх/нэгдэх.
 Нэвтрэлт: утас + нууц үг. Нууц үг мартвал дахин SMS. Хуучин имэйл + нууц үг хэвээр.
 
-Миграци прод дээр хараахан хэрэглээгүй. `db push` дарааллаараа авна (функцийг `db push` байршуулахгүй).
+Миграцийн түүх прод дээр зөрсөн байна. `db push`-ийг [docs/migration-repair.md](docs/migration-repair.md)-г зөвшөөрсний дараа л ажиллуулна (функцийг `db push` байршуулахгүй).
 Нууц `VERIFY_MN_API_KEY` зөвхөн Edge Function дээр. Функц session token буцаахгүй — клиент
 `signInWithPassword({ phone, password })` дуудна. Callback (`GET .../phone-auth/callback`)
 JWT-гүй, зөвхөн Verify.MN-ийн төлөвийг дахин шалгана.
@@ -115,23 +116,18 @@ npx supabase functions deploy phone-auth --no-verify-jwt --project-ref evtawdwjl
 
 ### Прод дээрх түүх (дахин бүү ажиллуул)
 
-Прод (`evtawdwjlwniwjjimkfh`) дээр схем гараар бүтсэн. `supabase_migrations.schema_migrations`
-дотор одоогоор зөвхөн `20261031171342` (`couple_chat`) бичигдсэн. Baseline-д mock мөр
-устгах `DELETE` байгаа тул түүнийг прод дээр **дахин ажиллуулж болохгүй** — зөвхөн
-“аль хэдийн applied” гэж тэмдэглэнэ. Дараа нь `db push` зөвхөн шинэ
-`20261114123000_security_advisor_fixes` миграцийг ажиллуулна.
+Прод (`evtawdwjlwniwjjimkfh`) дээр схем гараар бүтсэн, дараа нь гурван миграци
+репогийн файлын нэрнээс өөр version-оор түүхэнд орсон. Baseline-д mock мөр
+устгах `DELETE` байгаа тул түүнийг прод дээр **дахин ажиллуулж болохгүй**.
+`db push`-ийг одоо бүү ажиллуул. Эзэн зөвшөөрсний дараа яг ямар
+`migration repair` команд ажиллахыг [docs/migration-repair.md](docs/migration-repair.md)
+дэлгэрэнгүй бичсэн. Шинэ `20261123110000_phone_auth_search_path` миграцийг
+тэр зааврын сүүлийн алхам хүртэл бүү applied гэж тэмдэглэ.
 
-```bash
-npx supabase link --project-ref evtawdwjlwniwjjimkfh
-npx supabase migration list --remote
-npx supabase migration repair --status applied 20261031170000 --remote
-npx supabase db push --remote
-```
-
-`migration repair` зөвхөн түүхийн мөрийг засна, SQL ажиллуулахгүй.
-`couple_chat` аль хэдийн түүхэнд байгаа тул алгасна. Хэрэв `db push` локал
-`20261031171342_couple_chat.sql` прод дээр хадгалсан `statements`-тай зөрж байна
-гэж зогсвол файлыг засаад дахин бүү түлх — эхлээд remote мөрийн SQL-ийг харьцуул.
+`couple_chat`-ийн version (`20261031171342`) продтой таарна — бүү солино.
+Хэрэв `db push` локал `20261031171342_couple_chat.sql` прод дээр хадгалсан
+`statements`-тай зөрж байна гэж зогсвол файлыг засаад дахин бүү түлх — эхлээд
+remote мөрийн SQL-ийг харьцуул.
 
 `db push` нь notify Edge Function-ийг байршуулахгүй. Чатны холбоос (`url`) зэрэг
 шинэчлэл прод дээр очихын тулд `notify`-ийг гараар дахин deploy хийнэ
@@ -214,7 +210,9 @@ CLI-аар хийх бол: `npx supabase login` →
 npm test
 ```
 
-Pull request бүрд GitHub Actions (`.github/workflows/test.yml`) энэ командыг ажиллуулна.
+Pull request бүрд GitHub Actions (`.github/workflows/test.yml`) энэ командыг локал Postgres 17 дээр ажиллуулна.
+`tests/household.test.mjs`, `tests/phone-auth-fn.test.mjs` зэрэг нь mock. `tests/household-rls.test.mjs`,
+`tests/phone-auth-sql.test.mjs`, `tests/rls-isolation.test.mjs` нь локал Postgres (хост руу хандахгүй).
 
 [tests/finance.test.mjs](tests/finance.test.mjs): 4 сая, 4.6 сая, 3.8 сая,
 бутархайн үлдэгдэл, шилжих үлдэгдэл (7–9-р сарын тестийн өгөгдлөөр 225,500 → 301,500 → 360,500),

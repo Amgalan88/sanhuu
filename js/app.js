@@ -124,17 +124,6 @@ async function boot() {
   initMusic(); // нээмэгц хөгжим эхэлнэ (хөтөч хүлээлгэвэл анхны хүрэлтээр)
   onMusicChange(renderMusic);
   registerSW(); // push мэдэгдэл, апп болгон суулгах
-  // Локал дэлгэцийн зураг. Прод hostname дээр ажиллахгүй, Supabase руу хүсэлт явуулахгүй.
-  if (isLocalPreview('household')) {
-    S.store = previewStore();
-    return showHousehold();
-  }
-  if (isLocalPreview('phone-signup') || isLocalPreview('phone-verify')) {
-    S.store = previewPhoneStore();
-    document.documentElement.dataset.smsDevice = localSmsDevice();
-    if (isLocalPreview('phone-verify')) return showPhoneVerifyPreview();
-    return showPhoneFlow('signup');
-  }
   S.store = SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStore();
   if (S.store.mode === 'supabase') S.store.onRecovery = () => showLogin('', 'recovery');
   try {
@@ -143,68 +132,6 @@ async function boot() {
     return showLogin(e.message);
   }
   openGate();
-}
-
-function isLocalHost() {
-  const host = location.hostname;
-  return host === 'localhost' || host === '127.0.0.1';
-}
-
-function isLocalPreview(screen) {
-  if (!isLocalHost()) return false;
-  return new URLSearchParams(location.search).get('screen') === screen;
-}
-
-function localSmsDevice() {
-  if (isLocalHost()) {
-    const device = new URLSearchParams(location.search).get('device');
-    if (device === 'mobile' || device === 'desktop') return device;
-  }
-  return detectSmsDevice(navigator.userAgent);
-}
-
-function previewPhoneStore() {
-  const expiresAt = new Date(Date.now() + 4 * 60 * 1000 + 30 * 1000).toISOString();
-  return {
-    mode: 'preview',
-    needsHousehold: true,
-    async signOut() {},
-    async phoneAuth(body) {
-      if (body.action === 'start') {
-        return {
-          challenge: {
-            challengeId: '00000000-0000-4000-8000-000000000001',
-            purpose: body.purpose,
-            phone: '99112233',
-            shortcode: '144773',
-            text: '482916',
-            smsUri: 'sms:144773?body=482916',
-            displayInstruction: 'Та өөрийн 99112233 дугаараас 144773 дугаарт "482916" гэж SMS илгээнэ үү. 2 SIM-тэй бол зөв SIM-ээ сонгоно уу.',
-            expiresAt,
-            priceTugrik: 150,
-          },
-        };
-      }
-      if (body.action === 'status') return { status: 'pending', expiresAt };
-      return { ok: true, phone: '+97699112233', purpose: body.purpose || 'signup' };
-    },
-    async signIn() {
-      this.needsHousehold = true;
-      return null;
-    },
-    async createHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
-    async joinHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
-  };
-}
-
-function previewStore() {
-  return {
-    mode: 'preview',
-    needsHousehold: true,
-    async signOut() {},
-    async createHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
-    async joinHousehold() { throw new Error('Энэ зөвхөн дэлгэцийн урьдчилсан харагдац.'); },
-  };
 }
 
 function openGate() {
@@ -298,7 +225,7 @@ function authChrome(sub) {
   $('#login-error').textContent = '';
   const el = $('#login-sub');
   if (el && sub) el.textContent = sub;
-  document.documentElement.dataset.smsDevice = localSmsDevice();
+  document.documentElement.dataset.smsDevice = detectSmsDevice(navigator.userAgent);
 }
 
 function bindAuthTabs() {
@@ -415,21 +342,6 @@ function mountEmailLogin() {
   $('#show-email-signup').addEventListener('click', () => showSignup());
 }
 
-function showPhoneVerifyPreview() {
-  authChrome('Утас баталгаажуулах');
-  const challenge = {
-    challengeId: '00000000-0000-4000-8000-000000000001',
-    purpose: 'signup',
-    phone: '99112233',
-    shortcode: '144773',
-    text: '482916',
-    smsUri: 'sms:144773?body=482916',
-    displayInstruction: 'Та өөрийн 99112233 дугаараас 144773 дугаарт "482916" гэж SMS илгээнэ үү. 2 SIM-тэй бол зөв SIM-ээ сонгоно уу.',
-    expiresAt: new Date(Date.now() + 4 * 60 * 1000 + 30 * 1000).toISOString(),
-  };
-  mountPhoneVerify(challenge, 'signup');
-}
-
 function phoneChallengeStore() {
   try {
     return sessionStorage;
@@ -441,7 +353,7 @@ function phoneChallengeStore() {
 function showPhoneFlow(purpose) {
   authChrome(purpose === 'reset' ? 'Нууц үг сэргээх' : 'Шинэ бүртгэл');
   const store = phoneChallengeStore();
-  const saved = S.store.mode === 'preview' || !store ? null : loadChallenge(store, purpose);
+  const saved = store ? loadChallenge(store, purpose) : null;
   if (saved) {
     mountPhoneVerify(saved, purpose);
     return;
@@ -479,7 +391,7 @@ function mountPhoneVerify(challenge, purpose) {
   let status = 'pending';
   let lastPollAt = null;
   const paint = () => {
-    $('#login-body').innerHTML = renderPhoneVerify(current, { device: localSmsDevice(), now: Date.now() });
+    $('#login-body').innerHTML = renderPhoneVerify(current, { device: detectSmsDevice(navigator.userAgent), now: Date.now() });
     $('#phone-back').addEventListener('click', () => {
       clearPhoneTimers();
       const store = phoneChallengeStore();
