@@ -54,22 +54,14 @@ npx supabase migration repair --status applied 20261031170000 --linked
 
 `20261031171342` (`couple_chat`) is already the production version. Do not repair it and do not edit that file.
 
-## 3. security_advisor_fixes, after you see the remote version
+## 3. security_advisor_fixes
 
-If `migration list` shows local and remote both at `20261114123000`, do nothing to this file.
-
-If the remote version is some other timestamp `YYYYMMDDHHMMSS`:
-
-1. Do not run the SQL again.
-2. Rename `supabase/migrations/20261114123000_security_advisor_fixes.sql` to `supabase/migrations/YYYYMMDDHHMMSS_security_advisor_fixes.sql` so the filename matches production.
-3. Then:
+The file is already renamed to the production version `20261114132003`. Do not run its SQL again. If `20261114123000` is also in the remote history, remove that row. If `20261114132003` is already applied, skip the second command.
 
 ```bash
 npx supabase migration repair --status reverted 20261114123000 --linked
-npx supabase migration repair --status applied YYYYMMDDHHMMSS --linked
+npx supabase migration repair --status applied 20261114132003 --linked
 ```
-
-Replace `YYYYMMDDHHMMSS` with the version from `migration list`. If `20261114123000` is not on the remote, skip the `reverted` command.
 
 ## 4. Apply only the new migration
 
