@@ -37,7 +37,8 @@ test('app source has no hardcoded family id, email, or name', () => {
       for (const needle of BANNED) {
         if (text.includes(needle)) hits.push(`${rel}: ${needle}`);
       }
-      const email = text.match(EMAIL);
+      // legal-config.js holds the public contact address of the data controller on purpose.
+      const email = rel === join('js', 'legal-config.js') ? null : text.match(EMAIL);
       if (email) hits.push(`${rel}: ${email[0]}`);
     }
   }

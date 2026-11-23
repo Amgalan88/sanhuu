@@ -4,6 +4,7 @@
 import {
   POLL_MS, PRICE_NOTICE, SHORTCODE, SMS_PRICE_MNT, normalizeMnPhone, passwordError, safeSmsUri,
 } from '../supabase/functions/_shared/phone.js';
+import { consentCheckboxHtml } from './consent.js';
 
 export { POLL_MS, PRICE_NOTICE, SMS_PRICE_MNT, normalizeMnPhone, passwordError, safeSmsUri };
 
@@ -89,6 +90,7 @@ export function renderPhoneStart({ purpose }) {
       <p class="note">${title}</p>
       <label for="phone">Утасны дугаар</label>
       <input class="field" id="phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="14" placeholder="99123456" required>
+      ${purpose === 'signup' ? consentCheckboxHtml() : ''}
       <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">${purpose === 'reset' ? 'Код авах' : 'Үргэлжлүүлэх'}</button>
       <button type="button" class="linkish" id="phone-back">Нэвтрэх рүү буцах</button>
     </form>`;
@@ -129,6 +131,7 @@ export function renderPhonePassword({ purpose }) {
       <input class="field" id="new-password" type="password" autocomplete="new-password" minlength="6" required>
       <label for="new-password2">Нууц үг давтах</label>
       <input class="field" id="new-password2" type="password" autocomplete="new-password" minlength="6" required>
+      ${purpose === 'signup' ? consentCheckboxHtml() : ''}
       <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">${purpose === 'reset' ? 'Нууц үг шинэчлэх' : 'Бүртгүүлэх'}</button>
     </form>`;
 }

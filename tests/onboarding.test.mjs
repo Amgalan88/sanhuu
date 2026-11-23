@@ -62,6 +62,7 @@ test('new user finishes phone, verify, and household name, then sees the empty H
     await page.waitForSelector('#phone-start');
     assert.match(await page.$eval('.steps [aria-current="step"]', (el) => el.textContent), /Утас/);
     await page.type('#phone', '99112233');
+    await page.click('#consent');
     await page.click('#phone-start button[type="submit"]');
 
     await page.waitForSelector('#phone-verify');
@@ -72,6 +73,7 @@ test('new user finishes phone, verify, and household name, then sees the empty H
     assert.match(await page.$eval('.steps [aria-current="step"]', (el) => el.textContent), /Баталгаа/);
     await page.type('#new-password', 'nuutsug1');
     await page.type('#new-password2', 'nuutsug1');
+    await page.click('#consent');
     await page.click('#phone-password button[type="submit"]');
 
     await page.waitForSelector('#household-form');
