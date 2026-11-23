@@ -10,11 +10,11 @@ Production (`evtawdwjlwniwjjimkfh`) recorded three migrations under versions tha
 | --- | --- | --- | --- |
 | households | `20261115102321` | `20261115121500` | `20261115102321_households.sql` |
 | phone_auth | `20261115105823` | `20261115190000` | `20261115105823_phone_auth.sql` |
-| security_advisor_fixes | **not in the repo** | `20261114123000` | unchanged: `20261114123000_security_advisor_fixes.sql` |
+| security_advisor_fixes | `20261114132003` | `20261114123000` | `20261114132003_security_advisor_fixes.sql` |
 | couple_chat | `20261031171342` | same | unchanged |
 | baseline | recorded only as "already applied" in the old README, not as a pushed file | `20261031170000` | unchanged |
 
-`security_advisor_fixes` could not be given a production version. Git history, pull request #4, and the README only ever name `20261114123000`. Pull request #4 said that file had not been applied yet. There is no later note of a different version. The filename stays `20261114123000` until `migration list` shows the real remote version.
+`security_advisor_fixes`: `migration list` on 2026-11-23 showed the production version `20261114132003`. The stored SQL has the same md5 as the repo file (`dcad08043eb1cde6f13fabfd8c586c8f`), so the file was renamed to that version. Step 3 below is done.
 
 The new file `20261123110000_phone_auth_search_path.sql` is **not** on production. Do not mark it applied with `migration repair`. Apply it only in the last step, after the history lines up.
 

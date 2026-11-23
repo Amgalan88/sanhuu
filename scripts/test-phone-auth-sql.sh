@@ -20,7 +20,7 @@ run() {
 run tests/sql/00_stub.sql
 run supabase/migrations/20261031170000_baseline.sql
 run supabase/migrations/20261031171342_couple_chat.sql
-run supabase/migrations/20261114123000_security_advisor_fixes.sql
+run supabase/migrations/20261114132003_security_advisor_fixes.sql
 run supabase/migrations/20261115102321_households.sql
 run supabase/migrations/20261115105823_phone_auth.sql
 run supabase/migrations/20261123110000_phone_auth_search_path.sql
