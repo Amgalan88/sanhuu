@@ -232,9 +232,10 @@ test('демо горим өрхгүй гэж хаахгүй', async () => {
     removeItem: (k) => mem.delete(k),
   };
   const store = new LocalStore();
-  const me = await store.signIn({ userId: 'demo-enkh' });
+  const me = await store.signIn({ userId: 'local-a' });
   assert.equal(store.needsHousehold, false);
-  assert.equal(me.name, 'Энх-Амгалан');
+  assert.equal(me.name, 'Гишүүн');
+  assert.equal(me.role, 'owner');
   const data = await store.loadAll();
   assert.equal(data.incomes.length, 0);
   assert.equal(authGate({ needsHousehold: store.needsHousehold, me }), 'app');
@@ -242,7 +243,7 @@ test('демо горим өрхгүй гэж хаахгүй', async () => {
     date: '2026-11-15', amount: 1000, category: 'food', account: 'household', note: 'демо',
   });
   assert.equal(row.note, 'демо');
-  assert.equal(row.created_by, 'demo-enkh');
+  assert.equal(row.created_by, 'local-a');
 });
 
 test('notify зөвхөн өгсөн өрхийн бусад гишүүдэд', () => {

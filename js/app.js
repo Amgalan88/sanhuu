@@ -1,7 +1,7 @@
 import {
   TARGET, ACCOUNTS, SAVING_KEYS, EXPENSE_CATEGORIES, INCOME_SOURCES, categoryOf, sourceOf, expenseAccount,
   buildLedger, emptyMonth, monthKey, addMonths, monthLabel, todayISO, spendLevel,
-  fmt, fmtNum, fmtSigned, incomeSplits, MINUS, parseAmount, describe,
+  fmt, fmtNum, fmtShort, fmtSigned, incomeSplits, MINUS, parseAmount, describe,
   applyIncomeTypes, cleanAlloc, splitByPct, allocLabel, DEFAULT_SOURCES, accountKey, accountOf, MERGED_INTO,
 } from './finance.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
@@ -29,7 +29,7 @@ import { authGate, householdNameError, personNameError, inviteCodeError } from '
 import { resolveFab } from './fab.js';
 import {
   clearChallenge, detectSmsDevice, formatCountdown, loadChallenge, normalizeMnPhone, passwordError,
-  renderAuthTabs, renderPhoneLogin, renderPhonePassword, renderPhoneStart, renderPhoneVerify,
+  renderAuthTabs, renderPhoneLogin, renderPhonePassword, renderPhoneStart, renderPhoneVerify, renderStepBar,
   saveChallenge, shouldPoll,
 } from './phone-auth.js';
 
@@ -47,7 +47,7 @@ const ACC = Object.fromEntries(ACCOUNTS.map((a) => [a.key, a]));
 const EXPENSE_CHIPS = [5_000, 10_000, 20_000, 50_000, 100_000];
 const INCOME_CHIPS = [50_000, 100_000, 500_000, 1_000_000];
 const INCOME_CHEERS = [
-  'Гайхалтай! Орлого орлоо 🎉', 'Та хоёр чинь супер баг! 💪', 'Мөрөөдөл рүүгээ нэг алхам ойртлоо ✨',
+  'Гайхалтай! Орлого орлоо 🎉', 'Өрх чинь супер баг! 💪', 'Мөрөөдөл рүүгээ нэг алхам ойртлоо ✨',
   'Хөдөлмөрийн үр шим! 🌟', 'Бахархаж байна! 🥰', 'Хуримтлал өсөж байна! 📈',
 ];
 const EXPENSE_CHEERS = [
@@ -101,6 +101,18 @@ const S = {
 };
 
 const adminOf = (id) => S.store.admins.find((a) => a.user_id === id) || { emoji: '🙂', name: 'Тодорхойгүй' };
+// Зорилт өрхийн мөрөөс. Багана хараахан байхгүй бол шинэ өрхийн анхны утга (одоогийн өрхтэй адил 4 сая).
+function goalTarget() {
+  const n = Math.trunc(Number(S.store?.household?.monthly_target));
+  return Number.isInteger(n) && n >= 100_000 ? n : TARGET;
+}
+const goalShort = () => fmtShort(goalTarget());
+const goalName = () => `${goalShort()}ын зорилт`;
+const canManageHousehold = () => S.me?.role === 'owner' || S.me?.role === 'admin';
+const noTransactions = () => !S.incomes?.length && !S.expenses?.length;
+function ledgerOf(incomes, expenses, toMonth) {
+  return buildLedger(incomes, expenses, { toMonth, target: goalTarget() });
+}
 // Профайл зураг байвал зураг, үгүй бол эможи
 const av = (a, cls = '') => (a.avatar_url
   ? `<img class="av ${cls}" src="${esc(a.avatar_url)}" alt="">`
@@ -145,8 +157,6 @@ function openGate() {
   if (gate === 'app') return enterApp();
   return showLogin();
 }
-
-const devOnly = (html) => (S.store?.mode === 'demo' ? html : '');
 
 function showLogin(error = '', mode = '') {
   clearPhoneTimers();
@@ -199,15 +209,12 @@ function showLogin(error = '', mode = '') {
 
   if (S.store.mode === 'demo') {
     body.innerHTML = `
-      <p class="muted" style="margin:0 0 12px">Хэн нэвтэрч байна вэ?</p>
-      <div class="demo-pick">
-        ${S.store.admins.map((a) => `<button type="button" data-login="${a.user_id}">${av(a, 'xl')}${esc(a.name)}</button>`).join('')}
-      </div>
-      <p class="demo-note">🧪 Демо горим: өгөгдөл зөвхөн энэ хөтөчид хадгалагдана.</p>`;
-    $$('[data-login]', body).forEach((b) => b.addEventListener('click', async () => {
-      S.me = await S.store.signIn({ userId: b.dataset.login });
+      <p class="note">Энэ хөтөч дээр хоосон өрхөөр үргэлжилнэ. Өгөгдөл зөвхөн энэ төхөөрөмжид үлдэнэ.</p>
+      <button type="button" class="btn primary block" id="local-continue" style="min-height:54px">Үргэлжлүүлэх</button>`;
+    $('#local-continue').addEventListener('click', async () => {
+      S.me = await S.store.signIn({ userId: S.store.admins[0]?.user_id });
       enterApp();
-    }));
+    });
     return;
   }
 
@@ -351,7 +358,7 @@ function phoneChallengeStore() {
 }
 
 function showPhoneFlow(purpose) {
-  authChrome(purpose === 'reset' ? 'Нууц үг сэргээх' : 'Шинэ бүртгэл');
+  authChrome(purpose === 'reset' ? 'Нууц үг сэргээх' : '1 · Утасны дугаар');
   const store = phoneChallengeStore();
   const saved = store ? loadChallenge(store, purpose) : null;
   if (saved) {
@@ -386,12 +393,16 @@ function mountPhoneStart(purpose) {
 }
 
 function mountPhoneVerify(challenge, purpose) {
-  authChrome(purpose === 'reset' ? 'Нууц үг сэргээх' : 'Утас баталгаажуулах');
+  authChrome(purpose === 'reset' ? 'Нууц үг сэргээх' : '2 · Баталгаа');
   let current = challenge;
   let status = 'pending';
   let lastPollAt = null;
   const paint = () => {
-    $('#login-body').innerHTML = renderPhoneVerify(current, { device: detectSmsDevice(navigator.userAgent), now: Date.now() });
+    $('#login-body').innerHTML = renderPhoneVerify(current, {
+      device: detectSmsDevice(navigator.userAgent),
+      now: Date.now(),
+      step: purpose === 'signup' ? 2 : 0,
+    });
     $('#phone-back').addEventListener('click', () => {
       clearPhoneTimers();
       const store = phoneChallengeStore();
@@ -449,7 +460,7 @@ function mountPhoneVerify(challenge, purpose) {
 }
 
 function mountPhonePassword(purpose, challengeId) {
-  authChrome(purpose === 'reset' ? 'Шинэ нууц үг' : 'Нууц үг үүсгэх');
+  authChrome(purpose === 'reset' ? 'Шинэ нууц үг' : '2 · Баталгаа');
   $('#login-body').innerHTML = renderPhonePassword({ purpose });
   $('#phone-password').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -532,20 +543,22 @@ function showHousehold() {
   $('#login').hidden = false;
   $('#login-error').textContent = '';
   const sub = $('#login-sub');
-  if (sub) sub.textContent = 'Таны өгөгдөл зөвхөн таны өрхөд харагдана';
+  if (sub) sub.textContent = '3 · Өрхийн нэр';
   $('#login-body').innerHTML = `
+    ${renderStepBar(3)}
+    <p class="note" style="margin-top:0">Сүүлийн алхам. Өрхөө нэрлээд нүүр дээр шууд орлого, зарлага нэмнэ. Зорилт, хувийг дараа нь тохируулна.</p>
     <form id="household-form" novalidate>
-      <label for="person-name">Таны нэр</label>
-      <input class="field" id="person-name" name="person" autocomplete="name" maxlength="40" required placeholder="Жишээ: Болд">
       <label for="household-name">Өрхийн нэр</label>
-      <input class="field" id="household-name" name="household" maxlength="80" required value="Манай өрх">
+      <input class="field" id="household-name" name="household" maxlength="80" required placeholder="Жишээ: Бидний гэр">
+      <label for="person-name">Таны нэр</label>
+      <input class="field" id="person-name" name="person" autocomplete="name" maxlength="40" required placeholder="Жишээ: Сараа">
       <button class="btn primary block" style="margin-top:8px;min-height:54px" type="submit">Өрх үүсгэх</button>
     </form>
-    <div class="login-or">эсвэл</div>
+    <div class="login-or">эсвэл урилгаар нэгдэх</div>
     <form id="join-form" novalidate>
       <label for="invite-code-input">Урилгын код</label>
       <input class="field" id="invite-code-input" name="code" autocapitalize="characters" autocomplete="off" maxlength="12" placeholder="8 тэмдэгт" required>
-      <button class="btn block" style="margin-top:8px;min-height:54px" type="submit">Энэ өрхөд нэгдэх</button>
+      <button class="btn block" style="margin-top:8px;min-height:54px" type="submit">Урилгын кодоор нэгдэх</button>
       <button type="button" class="linkish" id="household-logout">Гарах</button>
     </form>`;
 
@@ -589,7 +602,7 @@ function showHousehold() {
     } catch (err) {
       $('#login-error').textContent = err.message;
       btn.disabled = false;
-      btn.textContent = 'Энэ өрхөд нэгдэх';
+      btn.textContent = 'Урилгын кодоор нэгдэх';
     }
   });
 }
@@ -659,8 +672,8 @@ function applyTypes() {
 
 function recompute() {
   const cur = currentMonth();
-  S.ledger = buildLedger(S.incomes, S.expenses, { toMonth: S.month > cur ? S.month : cur });
-  S.splits = incomeSplits(S.incomes);
+  S.ledger = ledgerOf(S.incomes, S.expenses, S.month > cur ? S.month : cur);
+  S.splits = incomeSplits(S.incomes, goalTarget());
 }
 
 function txState() {
@@ -809,7 +822,7 @@ function updateQuick() {
 
   if (fund) {
     const hypo = amount > 0 ? [...S.expenses, { date, amount, account: acc }] : S.expenses;
-    const L = buildLedger(S.incomes, hypo, { toMonth: m });
+    const L = ledgerOf(S.incomes, hypo, m);
     const left = (L.find((x) => x.month === m) || emptyMonth(m)).balances[acc];
     const a = ACC[acc];
     if (!amount) {
@@ -824,7 +837,7 @@ function updateQuick() {
     }
   } else if (isExp) {
     const hypo = amount > 0 ? [...S.expenses, { date, amount }] : S.expenses;
-    const L = buildLedger(S.incomes, hypo, { toMonth: m });
+    const L = ledgerOf(S.incomes, hypo, m);
     const r = L.find((x) => x.month === m) || emptyMonth(m);
     const left = r.householdLeft;
     if (!amount) {
@@ -850,14 +863,15 @@ function updateQuick() {
   } else {
     const before = S.incomes.filter((r) => monthKey(r.date) === m).reduce((s, r) => s + r.amount, 0);
     const after = before + amount;
-    if (after < TARGET) {
-      text = `🎯 ${monthLabel(m, false)}: зорилт хүртэл ${fmt(TARGET - after)} дутуу`;
+    const goal = goalTarget();
+    if (after < goal) {
+      text = `🎯 ${monthLabel(m, false)}: зорилт хүртэл ${fmt(goal - after)} дутуу`;
       cls = amount ? 'gold' : '';
-    } else if (after === TARGET) {
-      text = '🏆 4 саяын зорилт яг биелнэ!';
+    } else if (after === goal) {
+      text = `🏆 ${goalName()} яг биелнэ!`;
       cls = 'ok';
     } else {
-      text = `🎁 Илүүдэл ${fmt(after - TARGET)} 🎯 Зорилтот, 🛡️ Эрсдэлийн санд тэнцүү хуваагдана`;
+      text = `🎁 Илүүдэл ${fmt(after - goal)} 🎯 Зорилтот, 🛡️ Эрсдэлийн санд тэнцүү хуваагдана`;
       cls = 'ok';
     }
   }
@@ -943,18 +957,19 @@ function celebrateIncome(row, before, undo) {
   const { amount, source: cat } = row;
   const after = before + amount;
   const d = S.splits[row.id] || {};
-  const reached = before < TARGET && after >= TARGET;
-  const excessNow = before <= TARGET && after > TARGET;
+  const goal = goalTarget();
+  const reached = before < goal && after >= goal;
+  const excessNow = before <= goal && after > goal;
   const src = sourceOf(cat);
   celebrate({
     emoji: reached || excessNow ? '🏆' : '💰',
-    title: excessNow ? 'Илүүдэлтэй сар боллоо! 🎉' : reached ? '4 саяын зорилт биеллээ! 🏆' : pick(INCOME_CHEERS),
+    title: excessNow ? 'Илүүдэлтэй сар боллоо! 🎉' : reached ? `${goalName()} биеллээ! 🏆` : pick(INCOME_CHEERS),
     amount: fmtSigned(amount, 'income'),
     sub: `${src.emoji} ${src.name} · ${S.me.emoji} ${S.me.name}`,
     lines: ACCOUNTS.filter((a) => d[a.key] > 0).map((a) => [`${a.emoji} ${a.name}`, `+${fmt(d[a.key])}`]),
-    foot: after > TARGET ? `🎁 Энэ сарын илүүдэл ${fmt(after - TARGET)} — хуримтлал өслөө!`
-      : after === TARGET ? '🏆 Энэ сарын 4 саяын зорилт биелсэн!'
-      : `🎯 Зорилт хүртэл ${fmt(TARGET - after)} үлдлээ — чадна!`,
+    foot: after > goal ? `🎁 Энэ сарын илүүдэл ${fmt(after - goal)} — хуримтлал өслөө!`
+      : after === goal ? `🏆 Энэ сарын ${goalName()} биелсэн!`
+      : `🎯 Зорилт хүртэл ${fmt(goal - after)} үлдлээ — чадна!`,
     button: '📋 Даалгавар харах',
     onOk: goTasks,
     undo,
@@ -984,6 +999,7 @@ function dropLocal(kind, id) {
 // Зурах
 // ============================================================
 function renderAll() {
+  renderHomeState();
   renderMonthNav();
   renderSummary();
   renderOverview();
@@ -1024,7 +1040,7 @@ let allocTween = null;
 let allocRaf = 0;
 
 function allocTargets(r) {
-  const scale = Math.max(r.income || 0, TARGET, 1);
+  const scale = Math.max(r.income || 0, goalTarget(), 1);
   const out = {};
   for (const a of ACCOUNTS) {
     out[`w:${a.key}`] = (r.alloc[a.key] / scale) * 100;
@@ -1098,12 +1114,37 @@ function syncAllocTween(targets) {
 }
 
 // Сарын самбар: орлого ба 4 саяын зорилт, 60/20/20 хуваарилалтын график.
+function renderHomeState() {
+  const empty = noTransactions();
+  const box = $('#home-empty');
+  if (box) {
+    box.hidden = !empty;
+    if (empty) {
+      const name = esc(S.store.household?.name || 'Өрх');
+      box.innerHTML = `
+        <div class="home-empty-body">
+          <span aria-hidden="true">🌱</span>
+          <b>${name} одоогоор хоосон</b>
+          <p>Гүйлгээ алга. Дээрх маягтаар эхний орлого эсвэл зарлагаа нэмээрэй.</p>
+          <p class="note">Сарын зорилт (${esc(goalShort())}) болон хувийг дараа нь Бусад хэсгээс өөрчилнө.</p>
+        </div>`;
+    }
+  }
+  const overview = $('#overview');
+  const summary = $('#summary');
+  const coins = document.querySelector('.coins-card');
+  if (overview) overview.hidden = empty;
+  if (summary) summary.hidden = empty;
+  if (coins) coins.hidden = empty;
+}
+
 function renderSummary() {
   const r = rowOf(S.month);
-  const goalPct = pct(r.income, TARGET);
-  const goalText = r.income > TARGET ? `🎉 +${fmt(r.excess)} илүүдэл`
-    : r.income === TARGET ? '🏆 Биелсэн'
-    : r.income ? `${fmt(TARGET - r.income)} дутуу` : 'Орлого бүртгээгүй';
+  const goal = goalTarget();
+  const goalPct = pct(r.income, goal);
+  const goalText = r.income > goal ? `🎉 +${fmt(r.excess)} илүүдэл`
+    : r.income === goal ? '🏆 Биелсэн'
+    : r.income ? `${fmt(goal - r.income)} дутуу` : 'Орлого бүртгээгүй';
   const open = $('#summary details')?.open ? 'open' : '';
   const shown = syncAllocTween(allocTargets(r));
   const totalNow = ACCOUNTS.reduce((s, a) => s + (shown[`n:${a.key}`] || 0), 0);
@@ -1114,8 +1155,8 @@ function renderSummary() {
     <h2>📅 ${monthLabel(S.month, false)}</h2>
 
     <div class="sum-row"><span>💼 Орлого</span><b class="num ${r.income ? 'pos' : ''}">${r.income ? fmtSigned(r.income, 'income') : fmt(0)}</b></div>
-    <div class="bar" role="progressbar" aria-valuenow="${Math.round(goalPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="4 саяын зорилт"><i style="width:${goalPct}%"></i></div>
-    <div class="between"><span>${goalText}</span><span>зорилт ${fmt(TARGET)}</span></div>
+    <div class="bar" role="progressbar" aria-valuenow="${Math.round(goalPct)}" aria-valuemin="0" aria-valuemax="100" aria-label="${esc(goalName())}"><i style="width:${goalPct}%"></i></div>
+    <div class="between" data-goal="${goal}"><span>${goalText}</span><span>зорилт ${fmt(goal)}</span></div>
 
     <div class="alloc" id="alloc-chart" role="img" aria-label="Хуваарилалт 60/20/20. ${esc(aria)}">
       <h3>📐 Хуваарилалт · 60 / 20 / 20</h3>
@@ -1136,7 +1177,7 @@ function renderSummary() {
         <li><span></span><span>🌱 Өмнөх сараас шилжсэн</span><b class="num ${r.carryIn > 0 ? 'pos' : r.carryIn < 0 ? 'neg' : ''}">${signed(r.carryIn)}</b></li>
         ${SAVING_KEYS.filter((k) => r.withdrawn[k]).map((k) => `<li><span></span><span>💸 ${ACC[k].emoji} ${ACC[k].from} зарлага</span><b class="num">${fmtSigned(r.withdrawn[k], 'expense')}</b></li>`).join('')}
       </ul>
-      ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmt(r.std[k] - (TARGET * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
+      ${r.excess > 0 ? `<p class="note">🎁 Илүүдэл ${fmt(r.excess)} эзлэх хувиараа хуваагдсан: ${SAVING_KEYS.map((k) => `${ACC[k].emoji} +${fmt(r.std[k] - (goal * ACC[k].pct) / 100)}`).join(' · ')}</p>` : ''}
     </details>` : ''}`;
 }
 
@@ -1205,7 +1246,7 @@ function renderTasks() {
       <h2>📋 Хуваарилалтын даалгавар</h2>
       <span class="pill ${nDone === all.length ? 'ok' : 'gold'}" title="Энэ сарын бүх даалгавар: ${nDone} байршсан, ${leftAll} үлдсэн">${nDone}/${all.length} · ${leftAll} үлдсэн</span>
     </div>
-    ${devOnly(S.transfersMissing ? '<p class="note">⚠️ “Байршуулсан” тэмдэглэлийг хадгалахын тулд Supabase → SQL Editor дээр <b>supabase/transfers.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : '')}
+    ${S.transfersMissing ? '<p class="note">⚠️ Байршуулсан тэмдэглэл одоогоор хадгалагдахгүй.</p>' : ''}
     ${pending.length ? pending.map(taskGroup).join('') : '<p class="tasks-clear">🎉 Энэ сарын бүх хуваарилалт дансандаа байршсан!</p>'}
     ${finished.length ? `<details ${open}><summary>✅ Бүрэн байршсан орлого · ${finished.length}</summary>${finished.map(taskGroup).join('')}</details>` : ''}`;
 }
@@ -1334,7 +1375,7 @@ function filteredExpenses() {
 
 function filterBar() {
   const opts = [['all', 'Бүгд'], ...S.store.admins.map((a) => [a.user_id, `${av(a, 'xs')} ${esc(a.name)}`])];
-  return `<div class="filter" role="group" aria-label="Админаар шүүх">${opts.map(([v, l]) => `<button type="button" data-filter="${v}" aria-pressed="${S.filter === v}">${l}</button>`).join('')}</div>`;
+  return `<div class="filter" role="group" aria-label="Хэн бүртгэсэн">${opts.map(([v, l]) => `<button type="button" data-filter="${v}" aria-pressed="${S.filter === v}">${l}</button>`).join('')}</div>`;
 }
 
 function renderBreakdown() {
@@ -1476,13 +1517,13 @@ function achStats() {
   const L = S.ledger.filter((r) => r.month <= cur && (r.income || r.spent));
   let streak = 0;
   for (let i = L.length - 1; i >= 0; i--) {
-    if (L[i].income >= TARGET) streak++;
+    if (L[i].income >= goalTarget()) streak++;
     else if (L[i].month === cur && streak === 0) continue; // энэ сар дуусаагүй
     else break;
   }
   const saved = savedNow();
   return {
-    goal: L.filter((r) => r.income >= TARGET).length,
+    goal: L.filter((r) => r.income >= goalTarget()).length,
     excess: L.filter((r) => r.excess > 0).length,
     clean: L.filter((r) => r.month < cur && r.available > 0 && r.householdLeft >= 0).length,
     streak,
@@ -1541,7 +1582,7 @@ function renderAchievements() {
         <small>Дараагийн босго хүртэл ${fmt(st.next - st.saved)} үлдлээ</small>
       </div>` : ''}
 
-    ${devOnly(S.achievementsMissing ? '<p class="note">⚠️ Зураг нэмэхийн тулд Supabase → SQL Editor дээр <b>supabase/achievements.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : '')}
+    ${S.achievementsMissing ? '<p class="note">⚠️ Зураг нэмэх одоогоор боломжгүй.</p>' : ''}
     ${list.length
       ? `<div class="ach-grid">${list.map((r, i) => achCard(r, i === 0)).join('')}</div>`
       : `<button type="button" class="ach-empty" data-ach-add>
@@ -1653,7 +1694,7 @@ function wireViewer() {
 
 function openAchSheet() {
   if (S.achievementsMissing) {
-    toast(S.store.mode === 'demo' ? '⚠️ Эхлээд Supabase дээр supabase/achievements.sql-ийг ажиллуулна уу' : '⚠️ Зураг нэмэх одоогоор боломжгүй.', { kind: 'err', ms: 6000 });
+    toast('⚠️ Зураг нэмэх одоогоор боломжгүй.', { kind: 'err', ms: 6000 });
     return;
   }
   S.ach = { emoji: '🏆', images: null };
@@ -1755,7 +1796,7 @@ async function renderNotif() {
   const box = $('#notif-card');
   if (!box) return;
   const st = S.store.mode === 'demo' ? 'demo' : await pushState();
-  const [label, note] = st === 'demo' ? ['🧪 Демо горим', 'Мэдэгдэл демо горимд ирэхгүй.'] : NOTIF_TEXT[st];
+  const [label, note] = st === 'demo' ? ['Мэдэгдэл унтраалттай', 'Энэ горимд мэдэгдэл ирэхгүй.'] : NOTIF_TEXT[st];
   box.innerHTML = `
     <h2>🔔 Мэдэгдэл</h2>
     <div class="notif-row"><b>${label}</b></div>
@@ -1785,7 +1826,7 @@ function renderMusic() {
   const mini = $('#yt-mini');
   const down = on && musicUnavailable(); // YouTube ачаалагдаагүй
   const stage = $('#yt-stage');
-  if (stage) stage.hidden = !on || down;
+  if (stage) stage.hidden = document.body.dataset.view === 'home' || !on || down;
   mini.classList.toggle('off', !on || down);
   mini.classList.toggle('wait', waiting && !down);
   mini.querySelector('.yt-badge').textContent = down ? '⚠️' : !on ? '🔇' : waiting ? '🔊' : '⏭';
@@ -1848,7 +1889,7 @@ function renderIncomeTypes() {
   box.innerHTML = `
     <h2>💼 Орлогын төрөл</h2>
     <p class="note" style="margin-top:4px">Нэр болон хуваарилалтыг хэн нь ч сольж болно. Өөрчлөлт зөвхөн цаашид бүртгэх орлогод үйлчилнэ.</p>
-    ${devOnly(S.incomeTypesMissing ? '<p class="note">⚠️ Хадгалахын тулд Supabase → SQL Editor дээр <b>supabase/income-types.sql</b>-ийг нэг удаа ажиллуулна уу.</p>' : '')}
+    ${S.incomeTypesMissing ? '<p class="note">⚠️ Орлогын төрөл одоогоор засагдахгүй.</p>' : ''}
     <ul class="list">
       ${INCOME_SOURCES.map((s) => {
         const t = S.incomeTypes.find((x) => x.key === s.key);
@@ -1858,7 +1899,7 @@ function renderIncomeTypes() {
           <span class="tx-emoji">${s.emoji}</span>
           <div class="tx-main">
             <div class="tx-title">${esc(s.name)}</div>
-            <div class="tx-sub">${s.alloc ? `📐 ${allocLabel(s.alloc)}` : '📐 Стандарт дүрэм · 4 сая'}${who ? `<br>${av(who, 'xs')} ${esc(who.name)} · ${fmtTime(t.updated_at)}` : ''}</div>
+            <div class="tx-sub">${s.alloc ? `📐 ${allocLabel(s.alloc)}` : `📐 Стандарт дүрэм · ${esc(goalShort())}`}${who ? `<br>${av(who, 'xs')} ${esc(who.name)} · ${fmtTime(t.updated_at)}` : ''}</div>
           </div>
           <button type="button" class="btn small" data-edit-type="${s.key}">✏️ Засах</button>
         </li>`;
@@ -1868,7 +1909,7 @@ function renderIncomeTypes() {
 
 function openTypeSheet(key) {
   if (S.incomeTypesMissing) {
-    toast(S.store.mode === 'demo' ? '⚠️ Эхлээд Supabase дээр supabase/income-types.sql-ийг ажиллуулна уу' : '⚠️ Орлогын төрөл одоогоор засагдахгүй.', { kind: 'err', ms: 6000 });
+    toast('⚠️ Орлогын төрөл одоогоор засагдахгүй.', { kind: 'err', ms: 6000 });
     return;
   }
   const s = sourceOf(key);
@@ -1902,7 +1943,7 @@ function renderTypeTotals() {
     const sp = a ? splitByPct(500_000, a) : null;
     ex.textContent = sp
       ? `500,000₮ → ${ACCOUNTS.filter((x) => sp[x.key]).map((x) => `${x.emoji} ${fmt(sp[x.key])}`).join(' · ')}`
-      : e.custom ? '' : '🏠 60 / 🎯 20 / 🛡️ 20 · сард 4 саяас илүү бол илүүдэл 🎯, 🛡️ дансанд тэнцүү';
+      : e.custom ? '' : `🏠 60 / 🎯 20 / 🛡️ 20 · сард ${goalShort()}ас илүү бол илүүдэл 🎯, 🛡️ дансанд тэнцүү`;
   }
   const btn = $('#type-save');
   btn.disabled = !ok;
@@ -1985,7 +2026,7 @@ function renderMore() {
       </label>
       <div style="min-width:0">
         <b class="profile-name">${esc(S.me.name)}</b>
-        ${demo ? '<div class="muted" style="font-size:13px">🧪 Демо горим</div>' : ''}
+        <div class="muted" style="font-size:13px">${esc(S.store.household?.name || '')}${S.me.role === 'owner' ? ' · эзэн' : S.me.role === 'admin' ? ' · админ' : ''}</div>
       </div>
     </div>
     <div class="btn-row">
@@ -2004,17 +2045,24 @@ function renderMore() {
   renderMusic();
   renderIncomeTypes();
 
+  const goal = goalTarget();
+  const manage = canManageHousehold();
   $('#rules').innerHTML = `
     <h2>📐 Хуваарилалтын дүрэм</h2>
-    <ul class="rule-list">${ACCOUNTS.map((a) => `<li><span>${a.emoji} ${a.name}</span><b>${a.pct}%</b><span class="num muted">${fmt((TARGET * a.pct) / 100)}</span></li>`).join('')}</ul>
-    <p class="note">Сарын орлого 4 сая хүртэл дээрх хувиар, илүүдэл нь 🎯 🛡️ дансанд тэнцүү хуваагдана.</p>
+    <form id="goal-form" class="goal-form">
+      <label for="goal-target">Сарын зорилт</label>
+      <input class="field" id="goal-target" inputmode="numeric" autocomplete="off" value="${fmtNum(goal)}" aria-label="Сарын зорилт" ${manage ? '' : 'readonly'}>
+      ${manage ? '<button type="submit" class="btn block">Зорилт хадгалах</button>' : '<p class="note">Зорилтыг өрхийн эзэн эсвэл админ өөрчилнө.</p>'}
+    </form>
+    <ul class="rule-list">${ACCOUNTS.map((a) => `<li><span>${a.emoji} ${a.name}</span><b>${a.pct}%</b><span class="num muted">${fmt((goal * a.pct) / 100)}</span></li>`).join('')}</ul>
+    <p class="note">Сарын орлого ${esc(goalShort())} хүртэл дээрх хувиар, илүүдэл нь 🎯 🛡️ дансанд тэнцүү хуваагдана.</p>
     <details>
       <summary>Дэлгэрэнгүй</summary>
-    <p class="note">• <b>4 саяас илүү</b> бол илүүдлийг 🎯 Зорилтот, 🛡️ Эрсдэлийн санд <b>тэнцүү</b> (20:20 → 50% / 50%) нэмнэ.
+    <p class="note">• <b>${esc(goalShort())}ас илүү</b> бол илүүдлийг 🎯 Зорилтот, 🛡️ Эрсдэлийн санд <b>тэнцүү</b> (20:20 → 50% / 50%) нэмнэ.
       Жишээ: 600,000₮ илүүдэл → 🎯 +300,000, 🛡️ +300,000.</p>
     <p class="note">• 🏦 Хадгаламж, ✈️ Аялал дансууд 🎯 <b>Зорилтот</b> дансанд нэгдсэн — өмнөх үлдэгдэл, зарлага нь Зорилтот дансанд нийлж тооцогдоно.</p>
-    <p class="note">• <b>4 саяас бага</b> бол дээрх хувиар хуваана. Бутархай үлдэгдэл 🛡️ эрсдэлийн санд.</p>
-    <p class="note">• 💼 Орлогын төрөл бүрт <b>өөрийн хувь</b> тохируулж болно (дээрх “Орлогын төрөл” хэсэг). Тэр төрлийн орлого 4 саяын дүрэмд орохгүй, шууд тохируулсан хувиар хуваагдана.</p>
+    <p class="note">• <b>${esc(goalShort())}ас бага</b> бол дээрх хувиар хуваана. Бутархай үлдэгдэл 🛡️ эрсдэлийн санд.</p>
+    <p class="note">• 💼 Орлогын төрөл бүрт <b>өөрийн хувь</b> тохируулж болно (дээрх “Орлогын төрөл” хэсэг). Тэр төрлийн орлого сарын зорилтын дүрэмд орохгүй, шууд тохируулсан хувиар хуваагдана.</p>
     <p class="note">• 🏠 Өрхийн дансны үлдэгдэл дараа сард шилжинэ, хэтэрсэн бол дараа сараас хасагдана. 🎯 Зорилтот, 🛡️ Эрсдэлийн сан хуримтлагдана.</p>
     <p class="note">• 💸 Зарлага бүртгэхдээ <b>“Аль данснаас”</b>-ыг сонгоно. 🎯 🛡️ данснаас гаргасан зарлага тухайн дансны хуримтлалаас хасагдана, өрхийн дансанд нөлөөлөхгүй.</p>
     </details>`;
@@ -2057,9 +2105,10 @@ function tickerMessages() {
   const b = r.balances;
   const sar = `${monthLabel(S.month, false)}ын`;
   const m = [];
-  if (r.income > TARGET) m.push(`🎉 Илүүдэл ${fmt(r.excess)} — 🎯 Зорилтот, 🛡️ Эрсдэлийн санд хуваагдлаа!`);
-  if (r.income >= TARGET) m.push(`🏆 ${sar} 4 саяын зорилт биелсэн! Гайхалтай!`);
-  else if (r.income > 0) m.push(`💪 Зорилт хүртэл ${fmt(TARGET - r.income)} л үлдлээ`);
+  const goal = goalTarget();
+  if (r.income > goal) m.push(`🎉 Илүүдэл ${fmt(r.excess)} — 🎯 Зорилтот, 🛡️ Эрсдэлийн санд хуваагдлаа!`);
+  if (r.income >= goal) m.push(`🏆 ${sar} ${goalName()} биелсэн! Гайхалтай!`);
+  else if (r.income > 0) m.push(`💪 Зорилт хүртэл ${fmt(goal - r.income)} л үлдлээ`);
   else m.push('🌅 Шинэ сар — эхний орлогоо бүртгээрэй');
 
   const undone = inMonth(S.incomes).flatMap(incomeTasks).filter((t) => !t.done).length;
@@ -2086,8 +2135,8 @@ function tickerMessages() {
   const name = S.me?.name || '';
   m.push(h < 11 ? `☀️ Өглөөний мэнд, ${name}! Өнөөдөр ч гэсэн амжилт хүсье`
     : h >= 18 ? `🌙 Оройн мэнд, ${name}! Өнөөдрийн зарлагаа бүртгэсэн үү?`
-    : `🌤️ Сайн байна уу, ${name}! Та хоёр гайхалтай явж байна`);
-  m.push(`💑 ${S.store.admins.map((a) => a.name).join(' ба ')} — хамтдаа гайхалтай баг!`);
+    : `🌤️ Сайн байна уу, ${name}! Өнөөдөр ч гэсэн амжилт хүсье`);
+  m.push(`💑 ${teamLabel()} — хамтдаа гайхалтай баг!`);
   m.push('🤝 Хамтдаа төлөвлөвөл бүх зүйл боломжтой');
   return m;
 }
@@ -2140,8 +2189,21 @@ function startTicker() {
 // ============================================================
 // Чат
 // ============================================================
-function partner() {
-  return S.store.admins.find((a) => a.user_id !== S.me.user_id) || null;
+function teamLabel() {
+  const names = (S.store.admins || []).map((a) => a.name).filter(Boolean);
+  if (names.length <= 1) return names[0] || S.store.household?.name || 'Өрх';
+  if (names.length === 2) return `${names[0]} ба ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')} ба ${names.at(-1)}`;
+}
+
+function chatHead() {
+  const others = (S.store.admins || []).filter((a) => a.user_id !== S.me?.user_id);
+  if (others.length === 1) {
+    return `${av(others[0], 'md')}<div><h2>${esc(others[0].name)}</h2><p class="hint">💬 Шууд харагдана</p></div>`;
+  }
+  const title = S.store.household?.name || 'Чат';
+  const hint = others.length ? `${others.length + 1} гишүүн · шууд харагдана` : 'Өрхийн чат';
+  return `<div><h2>💬 ${esc(title)}</h2><p class="hint">${hint}</p></div>`;
 }
 
 function renderChatBadge() {
@@ -2156,19 +2218,14 @@ function renderChatBadge() {
 function renderChat({ scroll = 'keep' } = {}) {
   const log = $('#chat-log');
   if (!log) return;
-  const p = partner();
-  $('#chat-head').innerHTML = p
-    ? `${av(p, 'md')}<div><h2>${esc(p.name)}</h2><p class="hint">💬 Хоёуланд шууд харагдана</p></div>`
-    : '<div><h2>💬 Чат</h2><p class="hint">Хоёуланд шууд харагдана</p></div>';
+  $('#chat-head').innerHTML = chatHead();
 
   const missing = !!S.messagesMissing;
   $('#chat-form').hidden = missing;
   log.hidden = missing;
   const note = $('#chat-missing');
   note.hidden = !missing;
-  if (missing) note.textContent = S.store.mode === 'demo'
-    ? 'Эхлээд Supabase дээр supabase/chat.sql-ийг ажиллуулна уу. Дараа нь аппыг дахин нээнэ үү.'
-    : 'Чат одоогоор боломжгүй.';
+  if (missing) note.textContent = 'Чат одоогоор боломжгүй.';
 
   const prev = log.scrollTop;
   const stick = log.clientHeight > 0 && log.scrollHeight - log.scrollTop - log.clientHeight < 96;
@@ -2351,6 +2408,7 @@ function setView(v, scroll = true) {
   }
   pinChat();
   fabHiddenByScroll = false;
+  ensureMusic();
   if (scroll && v !== 'chat') scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' });
   updateFab();
 }
@@ -2545,6 +2603,28 @@ function wireGlobal() {
     }
     if (e.target.closest('#invite-create')) return createInvite();
     if (e.target.closest('#invite-copy')) return copyInvite();
+  });
+
+  document.addEventListener('submit', async (e) => {
+    if (e.target?.id !== 'goal-form') return;
+    e.preventDefault();
+    if (!canManageHousehold()) {
+      toast('⚠️ Зорилтыг өрхийн эзэн эсвэл админ өөрчилнө', { kind: 'err' });
+      return;
+    }
+    const n = parseAmount($('#goal-target')?.value);
+    if (n < 100_000 || n > 999_999_999) {
+      toast('⚠️ Сарын зорилт 100,000–999,999,999₮ байна', { kind: 'err' });
+      return;
+    }
+    try {
+      await S.store.saveHouseholdSettings({ monthlyTarget: n });
+      recompute();
+      renderAll();
+      toast(`✅ Сарын зорилт ${fmt(n)} боллоо`);
+    } catch (err) {
+      toast(`⚠️ ${err.message}`, { kind: 'err', ms: 6000 });
+    }
   });
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me) scheduleReload(100); });

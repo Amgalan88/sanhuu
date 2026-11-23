@@ -53,6 +53,11 @@ function hostVisible() {
 function start() {
   if (!musicOn() || document.hidden) return;
   const box = stage();
+  // Нүүр дээр видео байхгүй — гүйлгээ нэмэх маягт эхний дэлгэцэд үлдэнэ.
+  if (document.body?.dataset?.view === 'home') {
+    if (box) box.hidden = true;
+    return;
+  }
   if (box) box.hidden = false;
   // #app[hidden] эсвэл 0×0 үед тоглуулагч үүсгэхгүй — YouTube хоосон embed, 153 алдаа өгнө
   if (!hostVisible()) return;

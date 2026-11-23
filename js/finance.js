@@ -1,6 +1,7 @@
 // Санхүүгийн цэвэр логик — DOM, сүлжээнээс хамааралгүй тул unit test хийхэд хялбар.
 // Хуваарилалтыг хадгалдаггүй: орлого/зарлагаас үргэлж дахин тооцоолно.
 
+// Шинэ өрхийн анхны сарын зорилт. Өрх бүрийн бодит зорилт households.monthly_target-аас ирнэ.
 export const TARGET = 4_000_000;
 
 export const ACCOUNTS = [
@@ -89,23 +90,26 @@ export const sourceOf = (key) => INCOME_SOURCES.find((c) => c.key === key) || IN
 
 /**
  * Сарын нийт орлогыг 3 дансанд хуваана (🏠 60 / 🎯 20 / 🛡️ 20).
- * - 4 сая хүртэл: хувиар пропорциональ.
- * - 4 саяас илүү: 4 саяыг хувиар, илүүдлийг өрхөөс бусад 2 дансанд
+ * target — тухайн өрхийн сарын зорилт. Өгөөгүй бол шинэ өрхийн анхны утга.
+ * - Зорилт хүртэл: хувиар пропорциональ.
+ * - Зорилтоос илүү: зорилтыг хувиар, илүүдлийг өрхөөс бусад 2 дансанд
  *   эзлэх хувиар нь (20:20 → 50% / 50%) нэмнэ.
  * - Бутархайн үлдэгдэл эрсдэлийн санд.
  */
-export function allocate(total) {
+export function allocate(total, target = TARGET) {
   total = Math.max(0, Math.trunc(Number(total) || 0));
+  const cap = Math.max(0, Math.trunc(Number(target)));
+  const goal = Number.isFinite(cap) ? cap : TARGET;
   const out = {};
   let excess = 0;
 
-  if (total <= TARGET) {
+  if (total <= goal) {
     for (const a of ACCOUNTS) out[a.key] = Math.floor((total * a.pct) / 100);
   } else {
-    excess = total - TARGET;
+    excess = total - goal;
     const shareSum = ACCOUNTS.filter((a) => SAVING_KEYS.includes(a.key)).reduce((s, a) => s + a.pct, 0);
     for (const a of ACCOUNTS) {
-      out[a.key] = (TARGET * a.pct) / 100;
+      out[a.key] = (goal * a.pct) / 100;
       if (SAVING_KEYS.includes(a.key)) out[a.key] += Math.floor((excess * a.pct) / shareSum);
     }
   }
@@ -148,7 +152,7 @@ export function monthLabel(key, withYear = true) {
  * 🎯 Зорилтот, 🛡️ Эрсдэлийн сан сар бүр хуримтлагдана; тэдгээрээс гаргасан зарлага (account) тухайн дансаас хасагдана.
  * spent — зөвхөн өрхийн дансны зарлага, withdrawn — хуримтлалын данс бүрээс гаргасан зарлага.
  */
-export function buildLedger(incomes, expenses, { toMonth } = {}) {
+export function buildLedger(incomes, expenses, { toMonth, target = TARGET } = {}) {
   const inc = incomes.filter((r) => !r.deleted);
   const exp = expenses.filter((r) => !r.deleted);
   const keys = [...inc, ...exp].map((r) => monthKey(r.date));
@@ -179,7 +183,7 @@ export function buildLedger(incomes, expenses, { toMonth } = {}) {
     const income = incomeBy[month] || 0;
     const spent = spentBy[month] || 0;
     // Стандарт дүрмийн орлого (4 саяын зорилт) + өөрийн хувьтай орлого
-    const std = allocate(stdBy[month] || 0);
+    const std = allocate(stdBy[month] || 0, target);
     const alloc = { ...std, total: income };
     if (customBy[month]) for (const a of ACCOUNTS) alloc[a.key] += customBy[month][a.key];
     const carryIn = carry;
@@ -247,9 +251,9 @@ export const MINUS = '−';
 export const fmtSigned = (n, kind) => `${kind === 'income' ? '+' : MINUS}${fmt(Math.abs(n))}`;
 
 /** Сарын орлого before → after болоход данс бүрт хэд нэмэгдсэн. */
-export function allocDelta(before, after) {
-  const a = allocate(before);
-  const b = allocate(after);
+export function allocDelta(before, after, target = TARGET) {
+  const a = allocate(before, target);
+  const b = allocate(after, target);
   return Object.fromEntries(ACCOUNTS.map((x) => [x.key, b[x.key] - a[x.key]]));
 }
 
@@ -259,7 +263,7 @@ export function allocDelta(before, after) {
  * Сарын нийлбэр нь buildLedger-ийн alloc-той яг тэнцэнэ.
  * Буцаах: { [income.id]: { household, goal, risk } }
  */
-export function incomeSplits(incomes) {
+export function incomeSplits(incomes, target = TARGET) {
   const rows = incomes.filter((r) => !r.deleted).sort((a, b) =>
     String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')) || String(a.id).localeCompare(String(b.id)));
   const sumBy = {};
@@ -270,7 +274,7 @@ export function incomeSplits(incomes) {
     const m = monthKey(r.date);
     const before = sumBy[m] || 0;
     sumBy[m] = before + Math.trunc(r.amount);
-    out[r.id] = allocDelta(before, sumBy[m]);
+    out[r.id] = allocDelta(before, sumBy[m], target);
   }
   return out;
 }

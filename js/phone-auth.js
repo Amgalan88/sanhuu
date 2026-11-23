@@ -49,6 +49,16 @@ export function verifyView(challenge, { device = 'desktop', now = Date.now() } =
   };
 }
 
+/** Шинэ өрхийн 3 алхам: утас → баталгаа (Verify.MN) → өрхийн нэр. */
+export function renderStepBar(step) {
+  const items = [[1, 'Утас'], [2, 'Баталгаа'], [3, 'Өрх']];
+  return `<ol class="steps" aria-label="Шинэ өрхийн алхам">${items.map(([n, label]) => {
+    const cls = n < step ? 'done' : n === step ? 'on' : '';
+    const current = n === step ? ' aria-current="step"' : '';
+    return `<li class="${cls}"${current}><span>${n}</span>${esc(label)}</li>`;
+  }).join('')}</ol>`;
+}
+
 export function renderAuthTabs(active) {
   return `<div class="seg auth-tabs" role="tablist" aria-label="Нэвтрэх арга">
     <button type="button" id="tab-phone" role="tab" aria-pressed="${active === 'phone'}">Утас</button>
@@ -73,7 +83,8 @@ export function renderPhoneStart({ purpose }) {
   const title = purpose === 'reset'
     ? 'Бүртгэлтэй утасны дугаараа оруулна уу. Баталгаажуулсны дараа шинэ нууц үг үүсгэнэ.'
     : 'Бүртгэл зөвхөн таны өрхөд харагдана. Эхлээд утаснаасаа SMS илгээж дугаараа баталгаажуулна.';
-  return `<form id="phone-start" novalidate>
+  const steps = purpose === 'reset' ? '' : renderStepBar(1);
+  return `${steps}<form id="phone-start" novalidate>
       <p class="price-note" data-price="150">${esc(PRICE_NOTICE)}</p>
       <p class="note">${title}</p>
       <label for="phone">Утасны дугаар</label>
@@ -93,7 +104,8 @@ export function renderPhoneVerify(challenge, opts) {
         <p>Компьютер дээрх холбоос мессеж нээхгүй. Гар утаснаасаа <b>${esc(view.shortcode)}</b> дугаарт дээрх текстийг илгээнэ үү. 2 SIM-тэй бол энэ дугаарын SIM-ээ сонгоно уу.</p>
       </div>`
     : '';
-  return `<div id="phone-verify">
+  const steps = opts?.step ? renderStepBar(opts.step) : '';
+  return `${steps}<div id="phone-verify">
       <p class="price-note" data-price="150">${esc(view.price)}</p>
       <p class="sms-instruction">${esc(view.instruction)}</p>
       <p class="sms-code" aria-label="Илгээх текст">${esc(view.code)}</p>
@@ -110,7 +122,8 @@ export function renderPhonePassword({ purpose }) {
   const lead = purpose === 'reset'
     ? 'Дугаар баталгаажлаа. Шинэ нууц үгээ оруулна уу.'
     : 'Дугаар баталгаажлаа. Нэвтрэх нууц үгээ үүсгэнэ үү.';
-  return `<form id="phone-password" novalidate>
+  const steps = purpose === 'reset' ? '' : renderStepBar(2);
+  return `${steps}<form id="phone-password" novalidate>
       <p class="note" style="margin-top:0">${lead}</p>
       <label for="new-password">Нууц үг</label>
       <input class="field" id="new-password" type="password" autocomplete="new-password" minlength="6" required>
